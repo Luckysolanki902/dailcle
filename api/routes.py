@@ -6,7 +6,6 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 from services.orchestrator import orchestrator
-from scheduler import scheduler
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,9 +35,7 @@ class GenerateResponse(BaseModel):
 class HealthResponse(BaseModel):
     """Response model for health check."""
     status: str
-    scheduler_running: bool
-    next_run: Optional[str] = None
-    timezone: str
+    message: str
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -73,18 +70,11 @@ async def health_check():
     """
     Health check endpoint.
     
-    Returns scheduler status and next run time.
+    Returns service status.
     """
-    from config import settings
-    
-    next_run = scheduler.get_next_run_time()
-    next_run_str = next_run.isoformat() if next_run else None
-    
     return HealthResponse(
         status="healthy",
-        scheduler_running=scheduler.is_running,
-        next_run=next_run_str,
-        timezone=settings.timezone
+        message="Dailicle API is running. Scheduling handled by Render Cron Job."
     )
 
 
@@ -202,38 +192,4 @@ async def generate_simple_article():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/scheduler/status")
-async def scheduler_status():
-    """
-    Get detailed scheduler status.
-    """
-    from config import settings
-    
-    next_run = scheduler.get_next_run_time()
-    
-    return {
-        "running": scheduler.is_running,
-        "next_run": next_run.isoformat() if next_run else None,
-        "cron_schedule": settings.cron_schedule,
-        "timezone": settings.timezone
-    }
 
-
-@router.post("/scheduler/trigger")
-async def trigger_scheduler():
-    """
-    Manually trigger a scheduled run (immediate execution).
-    
-    This doesn't affect the regular schedule.
-    """
-    logger.info("Manual scheduler trigger requested")
-    
-    try:
-        scheduler.trigger_manual_run()
-        return {
-            "status": "triggered",
-            "message": "Article generation started"
-        }
-    except Exception as e:
-        logger.error(f"Manual trigger failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

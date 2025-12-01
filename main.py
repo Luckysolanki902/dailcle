@@ -8,7 +8,6 @@ import logging
 import sys
 from config import settings
 from api.routes import router
-from scheduler import scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -31,18 +30,14 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("Starting Dailicle Server")
     logger.info(f"Environment: {settings.environment}")
-    logger.info(f"Timezone: {settings.timezone}")
     logger.info(f"OpenAI Model: {settings.openai_model}")
     logger.info("=" * 60)
-    
-    # Start scheduler
-    scheduler.start()
+    logger.info("Note: Scheduling handled by Render Cron Job")
     
     yield
     
     # Shutdown
     logger.info("Shutting down Dailicle Server")
-    scheduler.stop()
 
 
 # Create FastAPI app
@@ -78,9 +73,7 @@ async def root():
             "generate": "/api/generate (POST)",
             "webhook": "/api/webhook/generate (POST)",
             "test_email": "/api/test-email (POST)",
-            "test_services": "/api/test-services (POST)",
-            "scheduler_status": "/api/scheduler/status",
-            "scheduler_trigger": "/api/scheduler/trigger (POST)"
+            "test_services": "/api/test-services (POST)"
         },
         "docs": "/docs",
         "redoc": "/redoc"
@@ -101,10 +94,12 @@ if __name__ == "__main__":
     import uvicorn
     
     # Run the server
+    import os
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=settings.environment == "development",
         log_level="info"
     )
