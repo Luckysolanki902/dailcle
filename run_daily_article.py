@@ -7,22 +7,31 @@ import asyncio
 import sys
 import logging
 
-# Configure logging
+# Configure logging - flush immediately
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True
 )
+
+# Make sure logs are flushed immediately
+for handler in logging.root.handlers:
+    handler.flush()
 
 logger = logging.getLogger(__name__)
 
 async def main():
     """Run the daily article generation workflow."""
+    print("=" * 70, flush=True)
+    print("CRON JOB STARTED - Dailicle Article Generation", flush=True)
+    print("=" * 70, flush=True)
+    
+    # Import here to avoid issues
     from services.orchestrator import orchestrator
     
-    logger.info("=" * 70)
-    logger.info("Starting daily article generation (triggered by Render Cron)")
-    logger.info("=" * 70)
+    print("Orchestrator imported successfully", flush=True)
+    print("Starting article generation workflow...", flush=True)
     
     try:
         result = await orchestrator.generate_and_publish(
@@ -31,24 +40,27 @@ async def main():
             save_to_storage=True
         )
         
-        logger.info("=" * 70)
-        logger.info("✅ Article generation completed successfully!")
-        logger.info(f"Topic: {result.get('topic_title')}")
-        logger.info(f"Notion: {result.get('notion_url')}")
-        logger.info(f"Email sent: {result.get('email_sent')}")
-        logger.info(f"Duration: {result.get('duration_seconds', 0):.2f}s")
-        logger.info("=" * 70)
+        print("=" * 70, flush=True)
+        print("SUCCESS! Article generation completed!", flush=True)
+        print(f"Topic: {result.get('topic_title')}", flush=True)
+        print(f"Notion: {result.get('notion_url')}", flush=True)
+        print(f"Email sent: {result.get('email_sent')}", flush=True)
+        print(f"Duration: {result.get('duration_seconds', 0):.2f}s", flush=True)
+        print("=" * 70, flush=True)
         
         return 0
         
     except Exception as e:
-        logger.error("=" * 70)
-        logger.error(f"❌ Article generation failed: {e}")
-        logger.error("=" * 70)
+        print("=" * 70, flush=True)
+        print(f"FAILED! Error: {e}", flush=True)
+        print("=" * 70, flush=True)
         import traceback
         traceback.print_exc()
+        sys.stdout.flush()
         return 1
 
 if __name__ == "__main__":
+    print("Script starting...", flush=True)
     exit_code = asyncio.run(main())
+    print(f"Script finished with exit code: {exit_code}", flush=True)
     sys.exit(exit_code)
