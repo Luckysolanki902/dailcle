@@ -183,9 +183,10 @@ class NotionService:
             if "content_blocks" in notion_page and notion_page["content_blocks"]:
                 all_blocks = notion_page["content_blocks"]
             else:
-                all_blocks = self._convert_markdown_to_blocks(
-                    article_data.get("article_markdown", "")
-                )
+                # Convert ** to * (bold to italic) before creating blocks
+                markdown_content = article_data.get("article_markdown", "")
+                markdown_content = markdown_content.replace("**", "*")
+                all_blocks = self._convert_markdown_to_blocks(markdown_content)
             
             logger.info(f"Total blocks to create: {len(all_blocks)}")
             
