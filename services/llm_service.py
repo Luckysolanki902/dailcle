@@ -99,6 +99,7 @@ class LLMService:
             response = self.client.responses.create(
                 model=self.model,
                 input=input_messages,
+                text={"verbosity": "high"},
                 reasoning={"effort": "high"},
                 tools=[
                     {
