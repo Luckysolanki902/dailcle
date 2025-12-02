@@ -1,278 +1,306 @@
 """
-LLM Service for generating daily articles using OpenAI.
-Uses the OpenAI Agents SDK for structured article generation.
+LLM Service for generating daily articles using OpenAI GPT-5.1.
+Free-form eloquent writing with web search for research.
 """
-import json
+import re
 import asyncio
 from typing import Dict, Any, Optional
-from openai import AsyncOpenAI
+from openai import OpenAI
 from config import settings
-from prompts.article_prompt import ARTICLE_SYSTEM_PROMPT, ARTICLE_USER_PROMPT
 import logging
-from datetime import datetime
+import markdown
 
 logger = logging.getLogger(__name__)
 
+# System prompt - minimal, focused on quality writing
+SYSTEM_PROMPT = """You are a brilliant writer and deep thinker. You write like the best essayists—clear, engaging, profound. Your writing flows naturally, never formulaic.
+
+You explore ideas with genuine curiosity and intellectual depth. You use vivid examples, stories, and analogies. You make complex ideas feel simple and obvious.
+
+Write for someone intelligent but busy—respect their time, reward their attention."""
+
+# User prompt - focused on what we want, not how
+USER_PROMPT = """Write a deeply researched, eloquent article on a fascinating topic.
+
+Pick something that will genuinely help the reader think better, live better, or understand the world more clearly. Topics like:
+- How humans actually make decisions (and why we're often wrong)
+- The psychology behind why we do what we do
+- Mental models that change how you see everything
+- Communication insights that transform relationships
+- Principles from engineering, science, or philosophy that apply to daily life
+- Counterintuitive truths about productivity, creativity, or success
+
+YOUR ARTICLE SHOULD:
+- Be genuinely interesting to read, not a list or summary
+- Go deep—explore the why, the mechanisms, the nuances
+- Use real stories, research, and examples
+- Have a natural flow—no rigid structure or forced sections
+- Be 4000-6000 words—this is a substantial piece worth reading
+- Make the reader think "I never saw it that way before"
+
+AT THE END OF YOUR ARTICLE, add this metadata section (I'll extract it with regex):
+
+---
+METADATA:
+Title: [Your article title]
+Category: [One of: psychology, decision-making, leadership, productivity, communication, relationships, cognitive-biases, systems-thinking, learning, creativity, emotional-intelligence, motivation]
+Tags: [3-5 comma-separated tags from the category list above]
+Summary: [One compelling sentence about what makes this article worth reading]
+---
+
+Also find and recommend:
+- 5-8 YouTube videos related to this topic (with real URLs from your web search)
+- 5-10 articles, papers, or books for further reading
+
+Format these as:
+YOUTUBE:
+- "Video Title" by Channel Name: https://youtube.com/watch?v=... - Brief description
+[repeat]
+
+RESOURCES:
+- "Title" by Author (Year): URL - Why it's worth reading
+[repeat]"""
+
 
 class LLMService:
-    """Service for generating articles using OpenAI."""
+    """Service for generating articles using OpenAI GPT-5.1 with web search."""
     
     def __init__(self):
-        # Set a 10-minute timeout for long article generation
-        self.client = AsyncOpenAI(
-            api_key=settings.openai_api_key,
-            timeout=600.0  # 10 minutes timeout
-        )
-        self.model = settings.openai_model
-        self.max_tokens = settings.max_tokens
-        self.temperature = settings.temperature
+        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.model = "gpt-5.1"
     
-    async def generate_article(self, topic_seed: Optional[str] = None, exclusion_prompt: str = "") -> Dict[str, Any]:
-        """
-        Generate a complete article with all sections and metadata.
+    def generate_article_sync(self, topic_seed: Optional[str] = None, exclusion_prompt: str = "") -> Dict[str, Any]:
+        """Generate a free-form eloquent article with web search."""
+        logger.info(f"Starting article generation with GPT-5.1, seed: {topic_seed}")
         
-        Args:
-            topic_seed: Optional topic hint for the LLM
-            exclusion_prompt: Optional prompt section to avoid recent topics
-            
-        Returns:
-            Dictionary containing the full article payload
-        """
-        logger.info(f"Starting article generation with seed: {topic_seed}")
+        # Build user prompt
+        user_prompt = USER_PROMPT
         
-        # Prepare user prompt with optional topic seed and exclusions
-        user_prompt = ARTICLE_USER_PROMPT
-        
-        # Add exclusion prompt for topic diversity (from MongoDB history)
         if exclusion_prompt:
-            user_prompt = exclusion_prompt + "\n\n" + user_prompt
-            logger.info("Added topic diversity exclusions from history")
+            user_prompt = f"{exclusion_prompt}\n\n{user_prompt}"
+            logger.info("Added topic exclusions from history")
         
         if topic_seed:
-            user_prompt = f"Topic seed/hint: {topic_seed}\n\n{user_prompt}"
+            user_prompt = f"Consider exploring: {topic_seed}\n\n{user_prompt}"
         
         try:
-            # Call OpenAI with streaming disabled for JSON response
-            # Note: Increased max_tokens to ensure full response
-            response = await self.client.chat.completions.create(
+            input_messages = [
+                {
+                    "role": "developer",
+                    "content": [{"type": "input_text", "text": SYSTEM_PROMPT}]
+                },
+                {
+                    "role": "user", 
+                    "content": [{"type": "input_text", "text": user_prompt}]
+                }
+            ]
+            
+            logger.info("Calling GPT-5.1 with web search enabled...")
+            response = self.client.responses.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": ARTICLE_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
+                input=input_messages,
+                reasoning={"effort": "high"},
+                tools=[
+                    {
+                        "type": "web_search",
+                        "user_location": {"type": "approximate"},
+                        "search_context_size": "high"
+                    }
                 ],
-                temperature=self.temperature,
-                max_tokens=16384,  # Max for gpt-4o-mini to ensure complete response
-                response_format={"type": "json_object"}  # Ensure JSON output
+                store=True
             )
             
-            # Extract and parse JSON response
-            content = response.choices[0].message.content
+            # Extract content
+            content = self._extract_content(response)
+            if not content:
+                raise ValueError("No content in response")
+            
             logger.info(f"Response length: {len(content)} characters")
             
-            # Log first 500 chars of response for debugging
-            logger.debug(f"Response preview: {content[:500]}...")
+            # Parse the free-form response
+            article_data = self._parse_response(content)
             
-            try:
-                article_data = json.loads(content)
-                logger.info(f"Successfully parsed JSON response")
-                logger.info(f"Keys in response: {list(article_data.keys())}")
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error: {e}")
-                logger.error(f"Content that failed to parse: {content[:1000]}...")
-                raise
+            logger.info(f"Article: {article_data['topic_title']}")
+            logger.info(f"Category: {article_data['category']}")
+            logger.info(f"Tags: {article_data['tags']}")
+            logger.info(f"Word count: {article_data['estimated_wordcount']}")
             
-            # Validate required fields (more flexible - warn but don't fail)
-            required_fields = [
-                "topic_title", "topic_rationale", "article_markdown"
-            ]
-            
-            optional_fields = [
-                "article_html", "youtube", "papers", "exercises",
-                "notion_page", "email_subject", "tags", "category",
-                "estimated_wordcount", "reading_time_minutes"
-            ]
-            
-            missing_required = [field for field in required_fields if field not in article_data]
-            if missing_required:
-                logger.error(f"Missing REQUIRED fields: {missing_required}")
-                raise ValueError(f"Missing required fields: {missing_required}")
-            
-            missing_optional = [field for field in optional_fields if field not in article_data]
-            if missing_optional:
-                logger.warning(f"Missing optional fields (will use defaults): {missing_optional}")
-                
-                # Add defaults for missing optional fields
-                if "article_html" not in article_data:
-                    article_data["article_html"] = f"<html><body><h1>{article_data.get('topic_title', 'Article')}</h1><pre>{article_data.get('article_markdown', '')}</pre></body></html>"
-                
-                if "youtube" not in article_data:
-                    article_data["youtube"] = []
-                
-                if "papers" not in article_data:
-                    article_data["papers"] = []
-                
-                if "exercises" not in article_data:
-                    article_data["exercises"] = {"beginner": [], "intermediate": [], "advanced": [], "day24": {}}
-                
-                if "notion_page" not in article_data:
-                    article_data["notion_page"] = {
-                        "parent_url": "https://www.notion.so/luckysolanki-personal/Daily-articles-2bbe80b58b6a8017854ce39c2109eedb",
-                        "title": article_data.get("topic_title", "Article"),
-                        "properties": {
-                            "Topic": article_data.get("topic_title", "General"),
-                            "Date": datetime.now().isoformat(),
-                            "Tags": article_data.get("tags", []),
-                            "Difficulty": "Intermediate",
-                            "TimeToRead": 30,
-                            "Author": "AI Mentor",
-                            "Status": "Draft"
-                        },
-                        "content_blocks": []
-                    }
-                
-                if "email_subject" not in article_data:
-                    article_data["email_subject"] = f"Daily Mentor: {article_data.get('topic_title', 'Article')}"
-                
-                if "tags" not in article_data:
-                    # Try to infer tags from topic title
-                    title_lower = article_data.get("topic_title", "").lower()
-                    inferred_tags = []
-                    tag_keywords = {
-                        "psychology": ["psychology", "mental", "cognitive", "emotion", "mind", "brain"],
-                        "decision-making": ["decision", "choice", "choosing", "judgment"],
-                        "leadership": ["leader", "leadership", "manage", "team"],
-                        "productivity": ["productivity", "efficient", "time", "focus"],
-                        "communication": ["communication", "speaking", "listening", "conversation"],
-                        "relationships": ["relationship", "partner", "conflict", "attachment"],
-                        "cognitive-biases": ["bias", "fallacy", "heuristic"],
-                        "systems-thinking": ["system", "complex", "emergent"],
-                        "learning": ["learning", "skill", "practice", "mastery"],
-                        "creativity": ["creative", "innovation", "ideas"],
-                        "emotional-intelligence": ["emotional", "empathy", "self-awareness"],
-                        "first-principles": ["first principles", "fundamental", "reasoning"]
-                    }
-                    for tag, keywords in tag_keywords.items():
-                        if any(kw in title_lower for kw in keywords):
-                            inferred_tags.append(tag)
-                    article_data["tags"] = inferred_tags[:5] if inferred_tags else ["psychology", "decision-making"]
-                
-                if "category" not in article_data:
-                    # Use first tag as category
-                    tags = article_data.get("tags", [])
-                    article_data["category"] = tags[0] if tags else "psychology"
-                
-                if "estimated_wordcount" not in article_data:
-                    markdown = article_data.get("article_markdown", "")
-                    article_data["estimated_wordcount"] = len(markdown.split())
-                
-                if "reading_time_minutes" not in article_data:
-                    article_data["reading_time_minutes"] = article_data.get("estimated_wordcount", 1000) // 200
-            
-            logger.info(f"Successfully generated article: {article_data['topic_title']}")
-            logger.info(f"Word count: {article_data['estimated_wordcount']}, "
-                       f"Reading time: {article_data['reading_time_minutes']} min")
-            
-            # Add generation metadata
             article_data["generation_metadata"] = {
                 "model": self.model,
-                "temperature": self.temperature,
-                "tokens_used": response.usage.total_tokens,
+                "api": "responses",
+                "web_search": True,
                 "topic_seed": topic_seed
             }
             
             return article_data
             
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
-            logger.error(f"Response content: {content[:500]}...")
-            raise ValueError("LLM did not return valid JSON")
-        
         except Exception as e:
             logger.error(f"Error generating article: {e}")
             raise
     
+    def _extract_content(self, response) -> Optional[str]:
+        """Extract text from GPT-5.1 response."""
+        if hasattr(response, 'output') and response.output:
+            for item in response.output:
+                if hasattr(item, 'content') and item.content:
+                    for c in item.content:
+                        if hasattr(c, 'text'):
+                            return c.text
+                if hasattr(item, 'text'):
+                    return item.text
+        if hasattr(response, 'output_text'):
+            return response.output_text
+        return None
+    
+    def _parse_response(self, content: str) -> Dict[str, Any]:
+        """Parse free-form response and extract metadata with regex."""
+        
+        # Extract metadata block
+        metadata_match = re.search(
+            r'---\s*\nMETADATA:\s*\n(.*?)\n---',
+            content, re.DOTALL | re.IGNORECASE
+        )
+        
+        title = "Untitled Article"
+        category = "psychology"
+        tags = ["psychology", "learning"]
+        summary = ""
+        
+        if metadata_match:
+            metadata_text = metadata_match.group(1)
+            
+            # Extract title
+            title_match = re.search(r'Title:\s*(.+)', metadata_text)
+            if title_match:
+                title = title_match.group(1).strip()
+            
+            # Extract category
+            cat_match = re.search(r'Category:\s*(.+)', metadata_text)
+            if cat_match:
+                category = cat_match.group(1).strip().lower()
+            
+            # Extract tags
+            tags_match = re.search(r'Tags:\s*(.+)', metadata_text)
+            if tags_match:
+                tags = [t.strip().lower() for t in tags_match.group(1).split(',')]
+            
+            # Extract summary
+            summary_match = re.search(r'Summary:\s*(.+)', metadata_text)
+            if summary_match:
+                summary = summary_match.group(1).strip()
+        
+        # Extract YouTube videos
+        youtube = []
+        youtube_section = re.search(r'YOUTUBE:\s*\n(.*?)(?=RESOURCES:|$)', content, re.DOTALL | re.IGNORECASE)
+        if youtube_section:
+            video_pattern = r'-\s*"([^"]+)"\s*by\s*([^:]+):\s*(https?://[^\s]+)\s*-?\s*(.+)?'
+            for match in re.finditer(video_pattern, youtube_section.group(1)):
+                youtube.append({
+                    "title": match.group(1).strip(),
+                    "channel": match.group(2).strip(),
+                    "url": match.group(3).strip(),
+                    "summary": (match.group(4) or "").strip()
+                })
+        
+        # Extract resources
+        papers = []
+        resources_section = re.search(r'RESOURCES:\s*\n(.+?)(?=---|$)', content, re.DOTALL | re.IGNORECASE)
+        if resources_section:
+            resource_pattern = r'-\s*"([^"]+)"\s*by\s*([^(]+)\s*\((\d+)\):\s*(https?://[^\s]+)\s*-?\s*(.+)?'
+            for match in re.finditer(resource_pattern, resources_section.group(1)):
+                papers.append({
+                    "title": match.group(1).strip(),
+                    "authors": match.group(2).strip(),
+                    "year": int(match.group(3)),
+                    "url": match.group(4).strip(),
+                    "summary": (match.group(5) or "").strip()
+                })
+        
+        # Get main article (everything before METADATA)
+        article_markdown = content
+        metadata_start = content.find('---\nMETADATA')
+        if metadata_start == -1:
+            metadata_start = content.find('---\n\nMETADATA')
+        if metadata_start > 0:
+            article_markdown = content[:metadata_start].strip()
+        
+        # Also remove YOUTUBE and RESOURCES sections from article
+        article_markdown = re.sub(r'\nYOUTUBE:.*', '', article_markdown, flags=re.DOTALL | re.IGNORECASE)
+        article_markdown = re.sub(r'\nRESOURCES:.*', '', article_markdown, flags=re.DOTALL | re.IGNORECASE)
+        article_markdown = article_markdown.strip()
+        
+        # Calculate word count
+        word_count = len(article_markdown.split())
+        
+        # Convert to HTML for email
+        article_html = self._markdown_to_html(article_markdown, title)
+        
+        return {
+            "topic_title": title,
+            "topic_rationale": summary,
+            "category": category,
+            "tags": tags[:5],
+            "article_markdown": article_markdown,
+            "article_html": article_html,
+            "email_subject": f"Daily Mentor: {title}",
+            "estimated_wordcount": word_count,
+            "reading_time_minutes": max(1, word_count // 200),
+            "youtube": youtube,
+            "papers": papers,
+            "exercises": {"beginner": [], "intermediate": [], "advanced": []},
+            "notion_page": {"title": title, "blocks": []}
+        }
+    
+    def _markdown_to_html(self, md_content: str, title: str) -> str:
+        """Convert markdown to email-safe HTML."""
+        try:
+            html_body = markdown.markdown(md_content, extensions=['extra'])
+        except:
+            html_body = f"<pre>{md_content}</pre>"
+        
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Georgia, serif; max-width: 680px; margin: 0 auto; padding: 20px; line-height: 1.7; color: #333;">
+    <h1 style="font-size: 28px; color: #1a1a1a; margin-bottom: 30px;">{title}</h1>
+    {html_body}
+    <hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
+    <p style="font-size: 14px; color: #666;">Daily Mentor - Your daily dose of wisdom</p>
+</body>
+</html>"""
+    
+    async def generate_article(self, topic_seed: Optional[str] = None, exclusion_prompt: str = "") -> Dict[str, Any]:
+        """Async wrapper."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.generate_article_sync(topic_seed, exclusion_prompt)
+        )
+    
     async def generate_article_with_retry(
-        self, 
+        self,
         topic_seed: Optional[str] = None,
         exclusion_prompt: str = "",
         max_retries: int = 3
     ) -> Dict[str, Any]:
-        """
-        Generate article with exponential backoff retry logic.
-        
-        Args:
-            topic_seed: Optional topic hint
-            exclusion_prompt: Optional prompt to avoid recent topics
-            max_retries: Maximum number of retry attempts
-            
-        Returns:
-            Dictionary containing the full article payload
-        """
+        """Generate with retry logic."""
         for attempt in range(max_retries):
             try:
                 return await self.generate_article(topic_seed, exclusion_prompt)
             except Exception as e:
                 if attempt == max_retries - 1:
-                    logger.error(f"Failed to generate article after {max_retries} attempts")
+                    logger.error(f"Failed after {max_retries} attempts")
                     raise
-                
-                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                wait_time = 2 ** attempt
                 logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s...")
-                await asyncio.sleep(wait_time)
                 await asyncio.sleep(wait_time)
     
     def validate_article_structure(self, article_data: Dict[str, Any]) -> bool:
-        """
-        Validate that the article has all required sections and proper structure.
-        
-        Args:
-            article_data: Article dictionary to validate
-            
-        Returns:
-            True if valid, raises ValueError if invalid
-        """
-        # Check article markdown has required sections
-        required_sections = [
-            "Executive Overview",
-            "First-Principles",
-            "How It Works",
-            "Mental Models",
-            "Real-World Applications",
-            "Common Mistakes",
-            "Practical Checklist",
-            "Exercises",
-            "24-Hour Experiment",
-            "Summary"
-        ]
-        
-        markdown = article_data.get("article_markdown", "")
-        missing_sections = [
-            section for section in required_sections 
-            if section.lower() not in markdown.lower()
-        ]
-        
-        if missing_sections:
-            logger.warning(f"Article missing sections: {missing_sections}")
-        
-        # Check notion_page structure (warn only, blocks will be auto-generated)
-        notion_page = article_data.get("notion_page", {})
-        if notion_page and "title" not in notion_page:
-            logger.warning(f"Notion page missing title, will use topic_title")
-        if notion_page and "properties" not in notion_page:
-            logger.warning(f"Notion page missing properties, will use defaults")
-        
-        # Check exercises structure (warn only, don't fail)
-        exercises = article_data.get("exercises", {})
-        required_exercise_keys = ["beginner", "intermediate", "advanced", "day24"]
-        missing_exercises = [
-            key for key in required_exercise_keys 
-            if key not in exercises
-        ]
-        
-        if missing_exercises:
-            logger.warning(f"Exercises missing categories: {missing_exercises}")
-        
-        logger.info("Article structure validation passed")
+        """Minimal validation - we trust the free-form output."""
+        logger.info("Article validation passed")
         return True
 
 

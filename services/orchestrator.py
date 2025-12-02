@@ -21,7 +21,7 @@ class ArticleOrchestrator:
         self,
         topic_seed: Optional[str] = None,
         send_email: bool = True,
-        save_to_storage: bool = True
+        save_to_storage: bool = False
     ) -> Dict[str, Any]:
         """
         Full workflow: generate article, create Notion page, send email, and save to storage.
