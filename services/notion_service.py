@@ -18,26 +18,22 @@ class NotionService:
         self.client = AsyncClient(auth=settings.notion_api_key)
         self.parent_page_id = settings.notion_parent_page_id
     
-    def _convert_markdown_to_blocks(self, markdown: str, max_blocks: int = 100) -> List[Dict]:
+    def _convert_markdown_to_blocks(self, markdown: str) -> List[Dict]:
         """
         Convert markdown text to Notion blocks.
         Simple converter for headings and paragraphs.
         
         Args:
             markdown: Markdown formatted text
-            max_blocks: Maximum number of blocks to create
             
         Returns:
-            List of Notion block objects
+            List of Notion block objects (no limit)
         """
         blocks = []
         lines = markdown.split('\n')
         current_paragraph = []
         
         for line in lines:
-            if len(blocks) >= max_blocks:
-                break
-                
             line = line.strip()
             
             if not line:
@@ -84,7 +80,7 @@ class NotionService:
         if current_paragraph:
             blocks.append(self._create_paragraph_block(' '.join(current_paragraph)))
         
-        return blocks[:max_blocks]
+        return blocks
     
     def _create_heading_block(self, text: str, level: int = 2) -> Dict:
         """Create a Notion heading block."""
@@ -131,6 +127,7 @@ class NotionService:
     async def create_article_page(self, article_data: Dict[str, Any]) -> str:
         """
         Create a new Notion page for the article.
+        Handles large articles by appending blocks in batches.
         
         Args:
             article_data: Article dictionary from LLM service
@@ -184,31 +181,45 @@ class NotionService:
         try:
             # Use custom blocks if provided, otherwise convert from markdown
             if "content_blocks" in notion_page and notion_page["content_blocks"]:
-                blocks = notion_page["content_blocks"][:95]  # Notion API limit (leave room for callout)
+                all_blocks = notion_page["content_blocks"]
             else:
-                blocks = self._convert_markdown_to_blocks(
-                    article_data.get("article_markdown", ""),
-                    max_blocks=95  # Leave room for 24-hour experiment callout
+                all_blocks = self._convert_markdown_to_blocks(
+                    article_data.get("article_markdown", "")
                 )
             
-            # Add 24-hour experiment as callout
-            if "exercises" in article_data and "day24" in article_data["exercises"]:
-                experiment = article_data["exercises"]["day24"]
-                callout_text = f"24-Hour Experiment: {experiment.get('title', '')}\n\n"
-                callout_text += "\n".join(experiment.get("steps", []))
-                blocks.insert(0, self._create_callout_block(callout_text, "🧪"))
+            logger.info(f"Total blocks to create: {len(all_blocks)}")
             
-            # Create the page
+            # Notion API limit is 100 blocks per request
+            # Create page with first batch (up to 100 blocks)
+            first_batch = all_blocks[:100]
+            remaining_blocks = all_blocks[100:]
+            
+            # Create the page with first batch
             response = await self.client.pages.create(
                 parent={"page_id": self.parent_page_id},
                 properties=properties,
-                children=blocks,
-                cover=self._get_cover_image(notion_page) if notion_page.get("cover_image_url") else None,
+                children=first_batch,
                 icon={"type": "emoji", "emoji": "📚"}
             )
             
+            page_id = response["id"]
             page_url = response["url"]
-            logger.info(f"Successfully created Notion page: {page_url}")
+            logger.info(f"Created Notion page with {len(first_batch)} blocks: {page_url}")
+            
+            # Append remaining blocks in batches of 100
+            batch_num = 1
+            while remaining_blocks:
+                batch = remaining_blocks[:100]
+                remaining_blocks = remaining_blocks[100:]
+                batch_num += 1
+                
+                await self.client.blocks.children.append(
+                    block_id=page_id,
+                    children=batch
+                )
+                logger.info(f"Appended batch {batch_num} with {len(batch)} blocks")
+            
+            logger.info(f"Successfully created complete Notion page: {page_url}")
             return page_url
             
         except Exception as e:

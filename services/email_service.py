@@ -14,6 +14,12 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Hardcoded recipient list
+RECIPIENT_EMAILS = [
+    "luckysolanki902@gmail.com",
+    "210103076@hbtu.ac.in"
+]
+
 
 class EmailService:
     """Service for sending formatted HTML emails."""
@@ -118,53 +124,61 @@ Sent to Lucky
         self, 
         article_data: Dict[str, Any],
         notion_url: str,
-        to_email: Optional[str] = None
+        to_emails: Optional[list] = None
     ) -> bool:
         """
-        Send the article via email.
+        Send the article via email to multiple recipients.
         
         Args:
             article_data: Article dictionary from LLM
             notion_url: URL of the Notion page
-            to_email: Override recipient email (optional)
+            to_emails: Override recipient emails (optional)
             
         Returns:
-            True if sent successfully, False otherwise
+            True if sent successfully to all, False otherwise
         """
-        to_email = to_email or self.to_email
-        subject = article_data.get("email_subject", f"Daily Mentor: {article_data['topic_title']}")
+        recipients = to_emails or RECIPIENT_EMAILS
+        subject = article_data.get("email_subject", f"Dailycle: {article_data['topic_title']}")
         
-        logger.info(f"Preparing to send email: {subject} to {to_email}")
+        logger.info(f"Preparing to send email: {subject} to {len(recipients)} recipients")
+        
+        # Add notion_url to article_data for template
+        article_data["notion_url"] = notion_url
+        
+        # Create plain text and HTML parts once
+        plain_text = self._create_plain_text_fallback(article_data)
+        html_content = self._render_html_email(article_data, notion_url)
+        
+        all_sent = True
         
         try:
-            # Create message
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = f"{self.from_name} <{self.from_email}>"
-            msg['To'] = to_email
-            msg['Reply-To'] = self.from_email
-            
-            # Add notion_url to article_data for template
-            article_data["notion_url"] = notion_url
-            
-            # Create plain text and HTML parts
-            plain_text = self._create_plain_text_fallback(article_data)
-            html_content = self._render_html_email(article_data, notion_url)
-            
-            part1 = MIMEText(plain_text, 'plain')
-            part2 = MIMEText(html_content, 'html')
-            
-            msg.attach(part1)
-            msg.attach(part2)
-            
-            # Send email
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+                
+                for to_email in recipients:
+                    try:
+                        # Create message for each recipient
+                        msg = MIMEMultipart('alternative')
+                        msg['Subject'] = subject
+                        msg['From'] = f"{self.from_name} <{self.from_email}>"
+                        msg['To'] = to_email
+                        msg['Reply-To'] = self.from_email
+                        
+                        part1 = MIMEText(plain_text, 'plain')
+                        part2 = MIMEText(html_content, 'html')
+                        
+                        msg.attach(part1)
+                        msg.attach(part2)
+                        
+                        server.send_message(msg)
+                        logger.info(f"✓ Email sent to {to_email}")
+                    except Exception as e:
+                        logger.error(f"✗ Failed to send to {to_email}: {e}")
+                        all_sent = False
             
-            logger.info(f"Successfully sent email to {to_email}")
-            return True
+            logger.info(f"Email sending completed. Success: {all_sent}")
+            return all_sent
             
         except smtplib.SMTPAuthenticationError as e:
             logger.error(f"SMTP authentication failed: {e}")
