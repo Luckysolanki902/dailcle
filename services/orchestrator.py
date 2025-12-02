@@ -110,9 +110,9 @@ class ArticleOrchestrator:
             # Step 5: Save topic to MongoDB history for diversity
             if settings.mongodb_uri:
                 try:
-                    # Determine category from tags
+                    # Use explicit category field, fallback to first tag
                     tags = article_data.get("tags", [])
-                    category = tags[0] if tags else "general"
+                    category = article_data.get("category") or (tags[0] if tags else "psychology")
                     
                     await topic_history.save_topic(
                         topic_title=article_data["topic_title"],
@@ -121,7 +121,7 @@ class ArticleOrchestrator:
                         word_count=article_data.get("estimated_wordcount", 0),
                         notion_url=notion_url
                     )
-                    logger.info(f"✓ Topic saved to history (category: {category})")
+                    logger.info(f"✓ Topic saved to history (category: {category}, tags: {tags})")
                 except Exception as e:
                     logger.warning(f"Could not save to topic history: {e}")
             

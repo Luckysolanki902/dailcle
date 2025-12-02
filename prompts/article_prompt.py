@@ -14,7 +14,7 @@ You must output valid JSON only, with no additional text or markdown formatting 
 Write like a mentor who genuinely cares about transforming how the reader thinks and acts."""
 
 
-ARTICLE_USER_PROMPT = """You must return a single valid JSON object with these exact keys: topic_title, topic_rationale, article_markdown, article_html, youtube, papers, exercises, notion_page, email_subject, tags, estimated_wordcount, reading_time_minutes.
+ARTICLE_USER_PROMPT = """You must return a single valid JSON object with these exact keys: topic_title, topic_rationale, article_markdown, article_html, youtube, papers, exercises, notion_page, email_subject, tags, category, estimated_wordcount, reading_time_minutes.
 
 Do not return any text outside the JSON object.
 
@@ -330,7 +330,12 @@ Keep it clear and compelling.
 
 ## Metadata
 
-- **tags:** Array of 3-5 relevant tags (e.g., ["psychology", "relationships", "decision-making", "communication", "leadership"])
+- **tags:** Array of 3-5 relevant category tags. MUST be from this list: "psychology", "decision-making", "leadership", "productivity", "communication", "relationships", "cognitive-biases", "systems-thinking", "learning", "creativity", "emotional-intelligence", "negotiation", "habit-formation", "first-principles", "product-thinking", "engineering", "persuasion", "conflict-resolution", "motivation", "attention"
+  Example: ["psychology", "emotional-intelligence", "relationships"]
+  IMPORTANT: Always include 3-5 tags from the above categories. Never return empty tags or ["general"].
+
+- **category:** String - The PRIMARY category of this article. MUST be one of: "psychology", "decision-making", "leadership", "productivity", "communication", "relationships", "cognitive-biases", "systems-thinking", "learning", "creativity"
+  
 - **estimated_wordcount:** Integer (actual word count from article_markdown)
 - **reading_time_minutes:** Integer (wordcount ÷ 200 words per minute, rounded up)
 

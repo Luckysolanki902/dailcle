@@ -88,7 +88,7 @@ class LLMService:
             
             optional_fields = [
                 "article_html", "youtube", "papers", "exercises",
-                "notion_page", "email_subject", "tags",
+                "notion_page", "email_subject", "tags", "category",
                 "estimated_wordcount", "reading_time_minutes"
             ]
             
@@ -134,7 +134,32 @@ class LLMService:
                     article_data["email_subject"] = f"Daily Mentor: {article_data.get('topic_title', 'Article')}"
                 
                 if "tags" not in article_data:
-                    article_data["tags"] = ["general"]
+                    # Try to infer tags from topic title
+                    title_lower = article_data.get("topic_title", "").lower()
+                    inferred_tags = []
+                    tag_keywords = {
+                        "psychology": ["psychology", "mental", "cognitive", "emotion", "mind", "brain"],
+                        "decision-making": ["decision", "choice", "choosing", "judgment"],
+                        "leadership": ["leader", "leadership", "manage", "team"],
+                        "productivity": ["productivity", "efficient", "time", "focus"],
+                        "communication": ["communication", "speaking", "listening", "conversation"],
+                        "relationships": ["relationship", "partner", "conflict", "attachment"],
+                        "cognitive-biases": ["bias", "fallacy", "heuristic"],
+                        "systems-thinking": ["system", "complex", "emergent"],
+                        "learning": ["learning", "skill", "practice", "mastery"],
+                        "creativity": ["creative", "innovation", "ideas"],
+                        "emotional-intelligence": ["emotional", "empathy", "self-awareness"],
+                        "first-principles": ["first principles", "fundamental", "reasoning"]
+                    }
+                    for tag, keywords in tag_keywords.items():
+                        if any(kw in title_lower for kw in keywords):
+                            inferred_tags.append(tag)
+                    article_data["tags"] = inferred_tags[:5] if inferred_tags else ["psychology", "decision-making"]
+                
+                if "category" not in article_data:
+                    # Use first tag as category
+                    tags = article_data.get("tags", [])
+                    article_data["category"] = tags[0] if tags else "psychology"
                 
                 if "estimated_wordcount" not in article_data:
                     markdown = article_data.get("article_markdown", "")
