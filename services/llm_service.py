@@ -18,25 +18,36 @@ class LLMService:
     """Service for generating articles using OpenAI."""
     
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        # Set a 10-minute timeout for long article generation
+        self.client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=600.0  # 10 minutes timeout
+        )
         self.model = settings.openai_model
         self.max_tokens = settings.max_tokens
         self.temperature = settings.temperature
     
-    async def generate_article(self, topic_seed: Optional[str] = None) -> Dict[str, Any]:
+    async def generate_article(self, topic_seed: Optional[str] = None, exclusion_prompt: str = "") -> Dict[str, Any]:
         """
         Generate a complete article with all sections and metadata.
         
         Args:
             topic_seed: Optional topic hint for the LLM
+            exclusion_prompt: Optional prompt section to avoid recent topics
             
         Returns:
             Dictionary containing the full article payload
         """
         logger.info(f"Starting article generation with seed: {topic_seed}")
         
-        # Prepare user prompt with optional topic seed
+        # Prepare user prompt with optional topic seed and exclusions
         user_prompt = ARTICLE_USER_PROMPT
+        
+        # Add exclusion prompt for topic diversity (from MongoDB history)
+        if exclusion_prompt:
+            user_prompt = exclusion_prompt + "\n\n" + user_prompt
+            logger.info("Added topic diversity exclusions from history")
+        
         if topic_seed:
             user_prompt = f"Topic seed/hint: {topic_seed}\n\n{user_prompt}"
         
@@ -158,6 +169,7 @@ class LLMService:
     async def generate_article_with_retry(
         self, 
         topic_seed: Optional[str] = None,
+        exclusion_prompt: str = "",
         max_retries: int = 3
     ) -> Dict[str, Any]:
         """
@@ -165,6 +177,7 @@ class LLMService:
         
         Args:
             topic_seed: Optional topic hint
+            exclusion_prompt: Optional prompt to avoid recent topics
             max_retries: Maximum number of retry attempts
             
         Returns:
@@ -172,7 +185,7 @@ class LLMService:
         """
         for attempt in range(max_retries):
             try:
-                return await self.generate_article(topic_seed)
+                return await self.generate_article(topic_seed, exclusion_prompt)
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.error(f"Failed to generate article after {max_retries} attempts")
@@ -180,6 +193,7 @@ class LLMService:
                 
                 wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
                 logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
                 await asyncio.sleep(wait_time)
     
     def validate_article_structure(self, article_data: Dict[str, Any]) -> bool:

@@ -6,6 +6,8 @@ from services.llm_service import llm_service
 from services.notion_service import notion_service
 from services.email_service import email_service
 from services.storage_service import storage_service
+from services.topic_history_service import topic_history
+from config import settings
 import logging
 from datetime import datetime
 
@@ -46,9 +48,22 @@ class ArticleOrchestrator:
         }
         
         try:
+            # Step 0: Get topic exclusions from history (MongoDB)
+            exclusion_prompt = ""
+            if settings.mongodb_uri:
+                try:
+                    logger.info("Step 0: Fetching topic history from MongoDB...")
+                    exclusion_prompt = await topic_history.build_exclusion_prompt()
+                    if exclusion_prompt:
+                        logger.info("✓ Topic diversity exclusions loaded")
+                    else:
+                        logger.info("✓ No exclusions (first run or empty history)")
+                except Exception as e:
+                    logger.warning(f"Could not fetch topic history: {e}. Continuing without exclusions.")
+            
             # Step 1: Generate article using LLM
             logger.info("Step 1/4: Generating article with OpenAI...")
-            article_data = await llm_service.generate_article_with_retry(topic_seed)
+            article_data = await llm_service.generate_article_with_retry(topic_seed, exclusion_prompt)
             
             result["topic_title"] = article_data["topic_title"]
             result["word_count"] = article_data["estimated_wordcount"]
@@ -91,6 +106,24 @@ class ArticleOrchestrator:
                 logger.info(f"✓ Article saved: {storage_path}")
             else:
                 logger.info("Step 4/4: Storage saving skipped")
+            
+            # Step 5: Save topic to MongoDB history for diversity
+            if settings.mongodb_uri:
+                try:
+                    # Determine category from tags
+                    tags = article_data.get("tags", [])
+                    category = tags[0] if tags else "general"
+                    
+                    await topic_history.save_topic(
+                        topic_title=article_data["topic_title"],
+                        tags=tags,
+                        category=category,
+                        word_count=article_data.get("estimated_wordcount", 0),
+                        notion_url=notion_url
+                    )
+                    logger.info(f"✓ Topic saved to history (category: {category})")
+                except Exception as e:
+                    logger.warning(f"Could not save to topic history: {e}")
             
             # Calculate duration
             end_time = datetime.now()

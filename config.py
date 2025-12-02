@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     max_tokens: int = 16000
     temperature: float = 0.3
     
+    # MongoDB Configuration
+    mongodb_uri: Optional[str] = None
+    
     # Optional: Cloud Storage
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
