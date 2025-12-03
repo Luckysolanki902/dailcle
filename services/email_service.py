@@ -6,18 +6,16 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Dict, Any, Optional
-from jinja2 import Template
-from pathlib import Path
 from config import settings
 import logging
 from datetime import datetime
+import markdown
 
 logger = logging.getLogger(__name__)
 
 # Hardcoded recipient list
 RECIPIENT_EMAILS = [
     "luckysolanki902@gmail.com",
-    "210103076@hbtu.ac.in"
 ]
 
 
@@ -32,11 +30,6 @@ class EmailService:
         self.from_email = settings.email_from
         self.from_name = settings.email_from_name
         self.to_email = settings.email_to
-        
-        # Load email template
-        template_path = Path(__file__).parent.parent / "templates" / "email_template.html"
-        with open(template_path, 'r') as f:
-            self.template = Template(f.read())
     
     def _create_plain_text_fallback(self, article_data: Dict[str, Any]) -> str:
         """
@@ -76,49 +69,73 @@ Sent to Lucky
     
     def _render_html_email(self, article_data: Dict[str, Any], notion_url: str) -> str:
         """
-        Render the HTML email using the template.
+        Convert markdown to email-safe HTML with YouTube and Resources sections.
         
         Args:
             article_data: Article dictionary from LLM
             notion_url: URL of the created Notion page
             
         Returns:
-            Rendered HTML string
+            HTML string
         """
-        # If article_html is provided by LLM, use it directly
-        if "article_html" in article_data and article_data["article_html"].strip().startswith("<!"):
-            # LLM provided complete HTML
-            return article_data["article_html"]
+        md_content = article_data.get("article_markdown", "")
+        title = article_data.get("topic_title", "Daily Article")
         
-        # Otherwise, use our template
-        # Extract experiment data
-        experiment = None
-        if "exercises" in article_data and "day24" in article_data["exercises"]:
-            experiment = article_data["exercises"]["day24"]
+        try:
+            html_body = markdown.markdown(md_content, extensions=['extra'])
+        except:
+            html_body = f"<pre>{md_content}</pre>"
         
-        # Get hero image
-        hero_image_url = None
-        if "notion_page" in article_data:
-            hero_image_url = article_data["notion_page"].get("cover_image_url")
+        # Build YouTube section
+        youtube_html = ""
+        youtube_videos = article_data.get("youtube", [])
+        if youtube_videos:
+            youtube_html = """
+    <hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
+    <h2 style="font-size: 22px; color: #1a1a1a;">📺 Recommended Videos</h2>
+    <ul style="padding-left: 20px;">"""
+            for video in youtube_videos:
+                video_title = video.get("title", "Video")
+                video_url = video.get("url", "")
+                if video_url:
+                    youtube_html += f'\n        <li style="margin-bottom: 8px;"><a href="{video_url}" style="color: #2b6cb0;">{video_title}</a></li>'
+            youtube_html += "\n    </ul>"
         
-        # Prepare template context
-        context = {
-            "topic_title": article_data["topic_title"],
-            "topic_rationale_short": article_data["topic_rationale"][:200] + "...",
-            "tags": article_data.get("tags", []),
-            "hero_image_url": hero_image_url,
-            "experiment": experiment,
-            "article_content_html": article_data.get("article_html", article_data.get("article_markdown", "")),
-            "youtube_videos": article_data.get("youtube", [])[:7],
-            "papers": article_data.get("papers", [])[:10],
-            "notion_url": notion_url,
-            "reading_time": article_data.get("reading_time_minutes", 30),
-            "word_count": article_data.get("estimated_wordcount", 0),
-            "generation_date": datetime.now().strftime("%B %d, %Y"),
-            "unsubscribe_url": "#"  # TODO: Implement unsubscribe functionality
-        }
+        # Build Resources section
+        resources_html = ""
+        papers = article_data.get("papers", [])
+        if papers:
+            resources_html = """
+    <hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
+    <h2 style="font-size: 22px; color: #1a1a1a;">📚 Further Reading</h2>
+    <ul style="padding-left: 20px;">"""
+            for paper in papers:
+                paper_title = paper.get("title", "Resource")
+                paper_url = paper.get("url", "")
+                if paper_url:
+                    resources_html += f'\n        <li style="margin-bottom: 8px;"><a href="{paper_url}" style="color: #2b6cb0;">{paper_title}</a></li>'
+                elif paper_title:
+                    resources_html += f'\n        <li style="margin-bottom: 8px;">{paper_title}</li>'
+            resources_html += "\n    </ul>"
         
-        return self.template.render(**context)
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Georgia, serif; max-width: 680px; margin: 0 auto; padding: 20px; line-height: 1.7; color: #333;">
+    <h1 style="font-size: 28px; color: #1a1a1a; margin-bottom: 30px;">{title}</h1>
+    {html_body}
+    {youtube_html}
+    {resources_html}
+    <hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
+    <p style="font-size: 14px; color: #666;">
+        <a href="{notion_url}" style="color: #2b6cb0;">Read in Notion</a> | 
+        Dailicle - Your daily dose of wisdom
+    </p>
+</body>
+</html>"""
     
     async def send_article_email(
         self, 

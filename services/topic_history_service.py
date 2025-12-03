@@ -51,8 +51,8 @@ class TopicHistoryService:
         
         Args:
             topic_title: The article title
-            tags: List of tags/keywords
-            category: Main category (psychology, decision-making, etc.)
+            tags: List of tags/keywords like decision-making, purpose, productivity, startup, Design, UI/UX, human behavior, reading emotions, etc.
+            category: Main category (psychology, leadership, etc.)
             word_count: Article word count
             notion_url: Link to Notion page
             
@@ -105,8 +105,19 @@ class TopicHistoryService:
         await self.connect()
         
         cursor = self.collection.find({}, {"_id": 0, "topic_title": 1})
-        docs = await cursor.to_list(length=500)
+        docs = await cursor.to_list(length=1000)
         return [doc["topic_title"] for doc in docs if "topic_title" in doc]
+    
+    async def get_all_topics(self) -> List[Dict[str, Any]]:
+        """Get ALL past topics with full details."""
+        await self.connect()
+        
+        cursor = self.collection.find(
+            {},
+            {"_id": 0, "topic_title": 1, "tags": 1, "category": 1, "date_str": 1}
+        ).sort("date", -1)
+        
+        return await cursor.to_list(length=1000)
     
     async def build_exclusion_prompt(self) -> str:
         """
@@ -117,41 +128,41 @@ class TopicHistoryService:
         """
         await self.connect()
         
-        # Get recent topics (last 30 days)
-        recent_topics = await self.get_recent_topics(days=30)
+        # Get ALL past topics (for complete exclusion)
+        all_topics = await self.get_all_topics()
         
-        # Get categories from last 7 days (to avoid same category)
-        recent_categories = await self.get_recent_categories(days=7)
+        # Get categories from last 15 days (to avoid same category)
+        recent_categories = await self.get_recent_categories(days=15)
         
         # Get all past titles
         all_titles = await self.get_all_past_titles()
         
-        if not recent_topics and not all_titles:
+        if not all_topics:
             return ""
         
         exclusion_parts = []
         
-        # Add recent category exclusions
+        # Add recent category exclusions (last 15 days)
         if recent_categories:
             unique_recent = list(set(recent_categories))
             exclusion_parts.append(
-                f"AVOID these categories (used in last 7 days): {', '.join(unique_recent)}"
+                f"AVOID these categories (used in last 15 days): {', '.join(unique_recent)}"
             )
         
-        # Add recent topic exclusions
-        if recent_topics:
-            recent_titles = [t["topic_title"] for t in recent_topics[:10]]
-            recent_tags = []
-            for t in recent_topics[:10]:
-                recent_tags.extend(t.get("tags", []))
-            unique_tags = list(set(recent_tags))[:15]
+        # Add ALL past topic exclusions
+        if all_topics:
+            all_titles = [t["topic_title"] for t in all_topics]
+            all_tags = []
+            for t in all_topics:
+                all_tags.extend(t.get("tags", []))
+            unique_tags = list(set(all_tags))
             
             exclusion_parts.append(
-                f"AVOID these recent topics: {', '.join(recent_titles)}"
+                f"NEVER repeat these past topics: {', '.join(all_titles)}"
             )
             if unique_tags:
                 exclusion_parts.append(
-                    f"AVOID focusing heavily on these recently covered tags: {', '.join(unique_tags)}"
+                    f"Be mindful of these previously covered tags (you can still use them, but bring fresh angles): {', '.join(unique_tags)}"
                 )
         
         # Build final exclusion prompt

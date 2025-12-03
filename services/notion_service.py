@@ -7,6 +7,7 @@ from notion_client import AsyncClient
 from config import settings
 import logging
 from datetime import datetime
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,55 @@ class NotionService:
     def __init__(self):
         self.client = AsyncClient(auth=settings.notion_api_key)
         self.parent_page_id = settings.notion_parent_page_id
+    
+    def _parse_rich_text(self, text: str) -> List[Dict]:
+        """
+        Parse markdown text with links into Notion rich_text array.
+        Converts [text](url) to proper Notion link format.
+        """
+        rich_text = []
+        
+        # Pattern to match markdown links [text](url)
+        link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+        
+        last_end = 0
+        for match in re.finditer(link_pattern, text):
+            # Add text before the link
+            if match.start() > last_end:
+                plain_text = text[last_end:match.start()]
+                if plain_text:
+                    rich_text.append({
+                        "type": "text",
+                        "text": {"content": plain_text}
+                    })
+            
+            # Add the link
+            link_text = match.group(1)
+            link_url = match.group(2)
+            rich_text.append({
+                "type": "text",
+                "text": {
+                    "content": link_text,
+                    "link": {"url": link_url}
+                }
+            })
+            
+            last_end = match.end()
+        
+        # Add remaining text after last link
+        if last_end < len(text):
+            remaining = text[last_end:]
+            if remaining:
+                rich_text.append({
+                    "type": "text",
+                    "text": {"content": remaining}
+                })
+        
+        # If no links found, return simple text
+        if not rich_text:
+            rich_text = [{"type": "text", "text": {"content": text}}]
+        
+        return rich_text
     
     def _convert_markdown_to_blocks(self, markdown: str) -> List[Dict]:
         """
@@ -85,15 +135,17 @@ class NotionService:
     def _create_heading_block(self, text: str, level: int = 2) -> Dict:
         """Create a Notion heading block."""
         heading_type = f"heading_{level}"
+        # Strip markdown links from headings (just use text)
+        clean_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
         return {
             "type": heading_type,
             heading_type: {
-                "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
+                "rich_text": [{"type": "text", "text": {"content": clean_text[:2000]}}]
             }
         }
     
     def _create_paragraph_block(self, text: str) -> Dict:
-        """Create a Notion paragraph block."""
+        """Create a Notion paragraph block with proper link handling."""
         # Split long paragraphs (Notion has 2000 char limit per block)
         if len(text) > 2000:
             text = text[:1997] + "..."
@@ -101,16 +153,16 @@ class NotionService:
         return {
             "type": "paragraph",
             "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": text}}]
+                "rich_text": self._parse_rich_text(text)
             }
         }
     
     def _create_bulleted_list_block(self, text: str) -> Dict:
-        """Create a Notion bulleted list item block."""
+        """Create a Notion bulleted list item block with link handling."""
         return {
             "type": "bulleted_list_item",
             "bulleted_list_item": {
-                "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
+                "rich_text": self._parse_rich_text(text[:2000])
             }
         }
     
@@ -119,7 +171,7 @@ class NotionService:
         return {
             "type": "callout",
             "callout": {
-                "rich_text": [{"type": "text", "text": {"content": text[:2000]}}],
+                "rich_text": self._parse_rich_text(text[:2000]),
                 "icon": {"type": "emoji", "emoji": emoji}
             }
         }
@@ -187,6 +239,30 @@ class NotionService:
                 markdown_content = article_data.get("article_markdown", "")
                 markdown_content = markdown_content.replace("**", "*")
                 all_blocks = self._convert_markdown_to_blocks(markdown_content)
+            
+            # Add YouTube videos section if available
+            youtube_videos = article_data.get("youtube", [])
+            if youtube_videos:
+                all_blocks.append({"type": "divider", "divider": {}})
+                all_blocks.append(self._create_heading_block("📺 Recommended Videos", level=2))
+                for video in youtube_videos:
+                    video_title = video.get("title", "Video")
+                    video_url = video.get("url", "")
+                    if video_url:
+                        all_blocks.append(self._create_bulleted_list_block(f"[{video_title}]({video_url})"))
+            
+            # Add Resources section if available
+            papers = article_data.get("papers", [])
+            if papers:
+                all_blocks.append({"type": "divider", "divider": {}})
+                all_blocks.append(self._create_heading_block("📚 Further Reading", level=2))
+                for paper in papers:
+                    paper_title = paper.get("title", "Resource")
+                    paper_url = paper.get("url", "")
+                    if paper_url:
+                        all_blocks.append(self._create_bulleted_list_block(f"[{paper_title}]({paper_url})"))
+                    elif paper_title:
+                        all_blocks.append(self._create_bulleted_list_block(paper_title))
             
             logger.info(f"Total blocks to create: {len(all_blocks)}")
             

@@ -8,7 +8,6 @@ from typing import Dict, Any, Optional
 from openai import OpenAI
 from config import settings
 import logging
-import markdown
 
 logger = logging.getLogger(__name__)
 
@@ -17,49 +16,69 @@ SYSTEM_PROMPT = """You are a brilliant writer and deep thinker. You write like t
 
 You explore ideas with genuine curiosity and intellectual depth. You use vivid examples, stories, and analogies. You make complex ideas feel simple and obvious.
 
-Write for someone intelligent but busy—respect their time, reward their attention."""
+Write for someone intelligent but busy—respect their time, reward their attention.
 
-# User prompt - focused on what we want, not how
-USER_PROMPT = """Write a deeply researched, eloquent article on a fascinating topic.
+Always obey the user's last message as the primary instruction."""
 
-Pick something that will genuinely help the reader think better, live better, or understand the world more clearly. Topics like:
-- How humans actually make decisions (and why we're often wrong)
-- The psychology behind why we do what we do
-- Mental models that change how you see everything
-- Communication insights that transform relationships
-- Principles from engineering, science, or philosophy that apply to daily life
-- Counterintuitive truths about productivity, creativity, or success
+# User prompt - essay style like Paul Graham / Wait But Why
+USER_PROMPT = """Write a deeply researched, eloquent longform essay. Think Paul Graham meets Wait But Why meets Morgan Housel.
 
-YOUR ARTICLE SHOULD:
-- Be genuinely interesting to read, not a list or summary
-- Go deep—explore the why, the mechanisms, the nuances
-- Use real stories, research, and examples
-- Have a natural flow—no rigid structure or forced sections
-- Be 4000-6000 words—this is a substantial piece worth reading
-- Make the reader think "I never saw it that way before"
+THE CRAFT
+- 5,000–7,000 words of flowing prose. No numbered sections (no "1.", "1.1", "Step 1"). No "Here are 5 tips". No headers like "Introduction" or "Conclusion". Just an eloquent flow, that flows fluently.
+- Start with a vivid scene, a paradox, or a question that pulls the reader in. Make them feel something before you teach them anything.
+- Weave in research naturally. Don't announce "Studies show..." every paragraph. Let evidence appear as part of the story.
+- Use concrete examples, mini-stories, and surprising analogies. Abstract ideas need flesh.
+- Write with warmth, wit, and personality. Don't be dry or overly academic.
 
-AT THE END OF YOUR ARTICLE, add this metadata section (I'll extract it with regex):
+TOPICS TO EXPLORE (these are just examples, You have to be creative, not just limited to these categories, or topics, pick or think of your own):
+- Thinking in feedback loops: how systems thinking reveals hidden compounding effects.
+- Spotlight effect and status signaling: why we assume attention is on us and how to break the loop.
+- Why certain designs feel beautiful — the Porsche 911, or apple products.
+- Designing for consistency: identity-based habits, scaffolding, friction, and engineering small wins.
+- The slow architecture of humility: practices for deflating ego without becoming passive.
+- How to validate startup ideas with 5 micro-experiments in a week (interviews, fake-door, concierge, landing page + cheap ads, cohort retention probe).
+- A/B testing for product habits: measuring retention, small mechanic changes, and interpretation pitfalls.
+- The psychology of showmanship vs. substance: social signaling, status maintenance, and cost-efficient authenticity.
+- Scripts and heuristics for text conversations when momentum stalls or tone shifts wrong.
+- How to console someone well: sequences, phrases, and the science of empathy.
+- Learning to ship small: how to structure 30-, 90-, and 365-day learning sprints for DSA, AI/ML, or a full-stack feature.
+- Cognitive biases that derail builders: spotlight effect, confirmation bias, planning fallacy, optimism bias, attribution errors—how to catch them in the wild.
+- Designing products people love by seeing the world through customers’ lived constraints.
+- Tiny habit engineering for the founder’s life: rituals that survive stressed weeks.
+- Social lab experiments: how to test whether you’re performing for status or acting from values.
+- Practical frameworks for tough family conversations while holding empathy and boundaries.
+- How to debug your own ego like a production incident (symptoms, logs, root cause, rollback, safeguards).
+- How to design a week as a founder-engineer so you actually finish things you start.
+- How to talk honestly about caste, status, or identity with family without turning the room into a battlefield.
+- How to be yourself on a date, in public, or online when your brain thinks you’re under a spotlight.
+- Something related to UI/UX and understanding human psychology as a founder/engineer.
+- or something like Design is not what it looks like, it’s how it works: cognitive load, Hick’s law, Fitts’s law, and mental models for intuitive products.
+- Or any topic like the books: Hooked, Thinking, Fast and Slow, Influence, Man's search for Meaning, How to win friends and influence people, Nudge, The Power of Habit, Atomic Habits, Deep Work, Range, The Lean Startup, Building a StoryBrand, Sprint, Measure What Matters, Thinking in Systems, Antifragile, The Black Swan, Fooled by Randomness, The Psychology of Money, Predictably Irrational, Drive, Mindset, Grit, So Good They Can’t Ignore You, The Courage to Be Disliked, Man’s Search for Meaning, The War of Art, The E-Myth Revisited, Rework, Founders at Work, Zero to One, High Output Management, The Hard Thing About Hard Things, Inspired, Shape Up, Don’t Make Me Think, Design of Everyday Things, The Mom Test, Crossing the Chasm, Contagious, Made to Stick, Influence Is Your Superpower, Never Split the Difference, Difficult Conversations, Crucial Conversations, Nonviolent Communication, How to Talk So Kids Will Listen & Listen So Kids Will Talk, Algorithms to Live By, Thinking in Bets, The Art of Learning, Principles, The Almanack of Naval Ravikant, Tools of Titans, or movies like The Social Dilemma, The Social Network, The Intern, The Big Short, Moneyball, etc.
+
+RESEARCH & SOURCES  
+- Use web search to find real studies, papers, articles, YouTube videos
+- Cite sources naturally with inline links—don't break flow
+- At the very end, list 3-5 YouTube videos and 5-10 resources (with real URLs)
+
+AT THE VERY END, append this exact format (we extract with regex):
 
 ---
 METADATA:
-Title: [Your article title]
-Category: [One of: psychology, decision-making, leadership, productivity, communication, relationships, cognitive-biases, systems-thinking, learning, creativity, emotional-intelligence, motivation]
-Tags: [3-5 comma-separated tags from the category list above]
-Summary: [One compelling sentence about what makes this article worth reading]
+Title: [Your title—intriguing, not clickbait]
+Category: [One of: psychology, decision-making, productivity, communication, relationships, creativity, learning, systems-thinking]
+Tags: [3-5 relevant tags]
+Summary: [One sentence core insight]
 ---
 
-Also find and recommend:
-- 5-8 YouTube videos related to this topic (with real URLs from your web search)
-- 5-10 articles, papers, or books for further reading
-
-Format these as:
 YOUTUBE:
-- "Video Title" by Channel Name: https://youtube.com/watch?v=... - Brief description
-[repeat]
+- "Video Title" by Channel: https://youtube.com/watch?v=xxxxx - Why worth watching
+(3-5 videos with real URLs)
 
 RESOURCES:
-- "Title" by Author (Year): URL - Why it's worth reading
-[repeat]"""
+- "Title" by Author (Year): https://... - One line why
+(5-10 items with real URLs)
+
+Write the best essay you've ever written. Make readers think, feel, and see something new."""
 
 
 class LLMService:
@@ -69,9 +88,9 @@ class LLMService:
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = "gpt-5.1"
     
-    def generate_article_sync(self, topic_seed: Optional[str] = None, exclusion_prompt: str = "") -> Dict[str, Any]:
-        """Generate a free-form eloquent article with web search."""
-        logger.info(f"Starting article generation with GPT-5.1, seed: {topic_seed}")
+    def generate_article_sync(self, exclusion_prompt: str = "") -> Dict[str, Any]:
+        """Generate a free-form eloquent article with web research."""
+        logger.info("Starting article generation with GPT-5.1...")
         
         # Build user prompt
         user_prompt = USER_PROMPT
@@ -79,9 +98,6 @@ class LLMService:
         if exclusion_prompt:
             user_prompt = f"{exclusion_prompt}\n\n{user_prompt}"
             logger.info("Added topic exclusions from history")
-        
-        if topic_seed:
-            user_prompt = f"Consider exploring: {topic_seed}\n\n{user_prompt}"
         
         try:
             input_messages = [
@@ -121,17 +137,13 @@ class LLMService:
             # Parse the free-form response
             article_data = self._parse_response(content)
             
+            # Save complete raw response
+            article_data["raw_response"] = content
+            
             logger.info(f"Article: {article_data['topic_title']}")
             logger.info(f"Category: {article_data['category']}")
             logger.info(f"Tags: {article_data['tags']}")
             logger.info(f"Word count: {article_data['estimated_wordcount']}")
-            
-            article_data["generation_metadata"] = {
-                "model": self.model,
-                "api": "responses",
-                "web_search": True,
-                "topic_seed": topic_seed
-            }
             
             return article_data
             
@@ -154,87 +166,168 @@ class LLMService:
         return None
     
     def _parse_response(self, content: str) -> Dict[str, Any]:
-        """Parse free-form response and extract metadata with regex."""
-        
-        # Extract metadata block
-        metadata_match = re.search(
-            r'---\s*\nMETADATA:\s*\n(.*?)\n---',
-            content, re.DOTALL | re.IGNORECASE
-        )
+        """Parse free-form response and extract metadata with robust regex."""
         
         title = "Untitled Article"
         category = "psychology"
         tags = ["psychology", "learning"]
         summary = ""
         
-        if metadata_match:
-            metadata_text = metadata_match.group(1)
-            
-            # Extract title
-            title_match = re.search(r'Title:\s*(.+)', metadata_text)
-            if title_match:
-                title = title_match.group(1).strip()
+        # Try multiple patterns for METADATA block
+        metadata_patterns = [
+            r'---\s*\n\s*METADATA:?\s*\n(.*?)\n\s*---',  # Standard format
+            r'##\s*METADATA[^\n]*\n(.*?)(?=\n##|\nYOUTUBE:|\nRESOURCES:|$)',  # Header format
+            r'\*\*METADATA\*\*[^\n]*\n(.*?)(?=\n##|\nYOUTUBE:|\nRESOURCES:|$)',  # Bold format
+            r'METADATA:?\s*\n(.*?)(?=\n##|\nYOUTUBE:|\nRESOURCES:|$)',  # Simple format
+        ]
+        
+        metadata_text = None
+        for pattern in metadata_patterns:
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+            if match:
+                metadata_text = match.group(1)
+                logger.info(f"Found METADATA with pattern: {pattern[:30]}...")
+                break
+        
+        if metadata_text:
+            # Extract title - try multiple patterns
+            title_patterns = [
+                r'Title:\s*\*?\*?([^\n*]+)',  # Title: with optional bold
+                r'\*\*Title:\*\*\s*([^\n]+)',  # **Title:**
+                r'Title:\s*\[([^\]]+)\]',  # Title: [...]
+            ]
+            for pattern in title_patterns:
+                match = re.search(pattern, metadata_text, re.IGNORECASE)
+                if match:
+                    title = match.group(1).strip().strip('*[]')
+                    logger.info(f"Extracted title: {title}")
+                    break
             
             # Extract category
-            cat_match = re.search(r'Category:\s*(.+)', metadata_text)
+            cat_match = re.search(r'Category:\s*\*?\*?([^\n*\[\]]+)', metadata_text, re.IGNORECASE)
             if cat_match:
                 category = cat_match.group(1).strip().lower()
             
             # Extract tags
-            tags_match = re.search(r'Tags:\s*(.+)', metadata_text)
+            tags_match = re.search(r'Tags:\s*\*?\*?([^\n]+)', metadata_text, re.IGNORECASE)
             if tags_match:
-                tags = [t.strip().lower() for t in tags_match.group(1).split(',')]
+                raw_tags = tags_match.group(1).strip().strip('*[]')
+                tags = [t.strip().lower().strip('*[]') for t in raw_tags.split(',') if t.strip()]
             
             # Extract summary
-            summary_match = re.search(r'Summary:\s*(.+)', metadata_text)
+            summary_match = re.search(r'Summary:\s*\*?\*?([^\n]+)', metadata_text, re.IGNORECASE)
             if summary_match:
-                summary = summary_match.group(1).strip()
+                summary = summary_match.group(1).strip().strip('*[]')
+        
+        # Fallback: extract title from content if still default
+        if title == "Untitled Article":
+            logger.warning("Title not found in metadata, trying fallbacks...")
+            title_anywhere = re.search(r'Title:\s*([^\n]+)', content, re.IGNORECASE)
+            if title_anywhere:
+                title = title_anywhere.group(1).strip().strip('*[]')
+                logger.info(f"Extracted title from content: {title}")
+            else:
+                first_heading = re.search(r'^#\s+([^\n]+)$', content, re.MULTILINE)
+                if first_heading:
+                    title = first_heading.group(1).strip()
+                    logger.info(f"Extracted title from H1: {title}")
+                else:
+                    logger.warning(f"Could not extract title. Content start: {content[:300]}")
         
         # Extract YouTube videos
         youtube = []
-        youtube_section = re.search(r'YOUTUBE:\s*\n(.*?)(?=RESOURCES:|$)', content, re.DOTALL | re.IGNORECASE)
-        if youtube_section:
-            video_pattern = r'-\s*"([^"]+)"\s*by\s*([^:]+):\s*(https?://[^\s]+)\s*-?\s*(.+)?'
-            for match in re.finditer(video_pattern, youtube_section.group(1)):
-                youtube.append({
-                    "title": match.group(1).strip(),
-                    "channel": match.group(2).strip(),
-                    "url": match.group(3).strip(),
-                    "summary": (match.group(4) or "").strip()
-                })
+        youtube_patterns = [
+            r'YOUTUBE:?\s*\n(.*?)(?=\nRESOURCES:|\n---|\n##|$)',
+            r'##\s*YOUTUBE[^\n]*\n(.*?)(?=\nRESOURCES:|\n---|\n##|$)',
+        ]
+        
+        youtube_text = None
+        for pattern in youtube_patterns:
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+            if match:
+                youtube_text = match.group(1)
+                break
+        
+        if youtube_text:
+            # Find all URLs in youtube section
+            for line in youtube_text.split('\n'):
+                if 'youtube.com' in line.lower() or 'youtu.be' in line.lower():
+                    # Extract URL
+                    url_match = re.search(r'(https?://[^\s\)]+)', line)
+                    if url_match:
+                        url = url_match.group(1).rstrip('.,;:')
+                        # Extract title (text before URL or in quotes/brackets)
+                        title_match = re.search(r'["\*\[]([^"\*\]]+)["\*\]]', line)
+                        if title_match:
+                            vid_title = title_match.group(1).strip()
+                        else:
+                            vid_title = line.split('http')[0].strip(' -•*[]"')
+                        
+                        youtube.append({
+                            "title": vid_title or "Video",
+                            "url": url,
+                            "channel": "",
+                            "summary": ""
+                        })
+            
+            logger.info(f"Extracted {len(youtube)} YouTube videos")
         
         # Extract resources
         papers = []
-        resources_section = re.search(r'RESOURCES:\s*\n(.+?)(?=---|$)', content, re.DOTALL | re.IGNORECASE)
-        if resources_section:
-            resource_pattern = r'-\s*"([^"]+)"\s*by\s*([^(]+)\s*\((\d+)\):\s*(https?://[^\s]+)\s*-?\s*(.+)?'
-            for match in re.finditer(resource_pattern, resources_section.group(1)):
-                papers.append({
-                    "title": match.group(1).strip(),
-                    "authors": match.group(2).strip(),
-                    "year": int(match.group(3)),
-                    "url": match.group(4).strip(),
-                    "summary": (match.group(5) or "").strip()
-                })
+        resources_patterns = [
+            r'RESOURCES:?\s*\n(.*?)(?=\n---|\n##\s|$)',
+            r'##\s*RESOURCES[^\n]*\n(.*?)(?=\n---|\n##\s|$)',
+        ]
         
-        # Get main article (everything before METADATA)
+        resources_text = None
+        for pattern in resources_patterns:
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+            if match:
+                resources_text = match.group(1)
+                break
+        
+        if resources_text:
+            for line in resources_text.split('\n'):
+                if line.strip().startswith('-') and 'http' in line.lower():
+                    url_match = re.search(r'(https?://[^\s\)]+)', line)
+                    url = url_match.group(1).rstrip('.,;:') if url_match else ""
+                    
+                    # Extract title
+                    title_match = re.search(r'["\*\[]([^"\*\]]+)["\*\]]', line)
+                    if title_match:
+                        res_title = title_match.group(1).strip()
+                    else:
+                        res_title = line.split('http')[0].strip(' -•*[]"')
+                    
+                    if res_title:
+                        papers.append({
+                            "title": res_title,
+                            "authors": "",
+                            "year": 0,
+                            "url": url,
+                            "summary": ""
+                        })
+            
+            logger.info(f"Extracted {len(papers)} resources")
+        
+        # Get clean article markdown (remove metadata, youtube, resources sections)
         article_markdown = content
-        metadata_start = content.find('---\nMETADATA')
-        if metadata_start == -1:
-            metadata_start = content.find('---\n\nMETADATA')
-        if metadata_start > 0:
-            article_markdown = content[:metadata_start].strip()
         
-        # Also remove YOUTUBE and RESOURCES sections from article
-        article_markdown = re.sub(r'\nYOUTUBE:.*', '', article_markdown, flags=re.DOTALL | re.IGNORECASE)
-        article_markdown = re.sub(r'\nRESOURCES:.*', '', article_markdown, flags=re.DOTALL | re.IGNORECASE)
+        removal_patterns = [
+            r'\n---\s*\n\s*METADATA:.*$',
+            r'\n##\s*METADATA.*$',
+            r'\nMETADATA:.*$',
+            r'\nYOUTUBE:.*$',
+            r'\n##\s*YOUTUBE.*$',
+            r'\nRESOURCES:.*$',
+            r'\n##\s*RESOURCES.*$',
+        ]
+        
+        for pattern in removal_patterns:
+            article_markdown = re.sub(pattern, '', article_markdown, flags=re.DOTALL | re.IGNORECASE)
+        
         article_markdown = article_markdown.strip()
-        
-        # Calculate word count
         word_count = len(article_markdown.split())
-        
-        # Convert to HTML for email
-        article_html = self._markdown_to_html(article_markdown, title)
         
         return {
             "topic_title": title,
@@ -242,55 +335,30 @@ class LLMService:
             "category": category,
             "tags": tags[:5],
             "article_markdown": article_markdown,
-            "article_html": article_html,
-            "email_subject": f"Daily Mentor: {title}",
+            "email_subject": f"Dailicle: {title}",
             "estimated_wordcount": word_count,
             "reading_time_minutes": max(1, word_count // 200),
             "youtube": youtube,
             "papers": papers,
-            "exercises": {"beginner": [], "intermediate": [], "advanced": []},
-            "notion_page": {"title": title, "blocks": []}
         }
     
-    def _markdown_to_html(self, md_content: str, title: str) -> str:
-        """Convert markdown to email-safe HTML."""
-        try:
-            html_body = markdown.markdown(md_content, extensions=['extra'])
-        except:
-            html_body = f"<pre>{md_content}</pre>"
-        
-        return f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Georgia, serif; max-width: 680px; margin: 0 auto; padding: 20px; line-height: 1.7; color: #333;">
-    <h1 style="font-size: 28px; color: #1a1a1a; margin-bottom: 30px;">{title}</h1>
-    {html_body}
-    <hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
-    <p style="font-size: 14px; color: #666;">Daily Mentor - Your daily dose of wisdom</p>
-</body>
-</html>"""
-    
-    async def generate_article(self, topic_seed: Optional[str] = None, exclusion_prompt: str = "") -> Dict[str, Any]:
+    async def generate_article(self, exclusion_prompt: str = "") -> Dict[str, Any]:
         """Async wrapper."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
-            lambda: self.generate_article_sync(topic_seed, exclusion_prompt)
+            lambda: self.generate_article_sync(exclusion_prompt)
         )
     
     async def generate_article_with_retry(
         self,
-        topic_seed: Optional[str] = None,
         exclusion_prompt: str = "",
         max_retries: int = 3
     ) -> Dict[str, Any]:
         """Generate with retry logic."""
         for attempt in range(max_retries):
             try:
-                return await self.generate_article(topic_seed, exclusion_prompt)
+                return await self.generate_article(exclusion_prompt)
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.error(f"Failed after {max_retries} attempts")
@@ -300,7 +368,7 @@ class LLMService:
                 await asyncio.sleep(wait_time)
     
     def validate_article_structure(self, article_data: Dict[str, Any]) -> bool:
-        """Minimal validation - we trust the free-form output."""
+        """Minimal validation."""
         logger.info("Article validation passed")
         return True
 

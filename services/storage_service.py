@@ -1,165 +1,164 @@
 """
-Optional: Storage service for saving articles to S3 or cloud storage.
-This is useful for archiving and backup purposes.
+Storage Service using MongoDB.
+Saves full article data to a separate collection, linked to topic_history.
 """
-import json
 from typing import Dict, Any, Optional
 from datetime import datetime
-from pathlib import Path
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
+from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class LocalStorageService:
-    """Service for saving articles locally (fallback if no cloud storage)."""
+class MongoStorageService:
+    """Service for saving full article data to MongoDB."""
     
-    def __init__(self, storage_dir: str = "articles"):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(exist_ok=True)
+    def __init__(self):
+        self.client = None
+        self.db = None
+        self.collection = None
+        self._connected = False
     
-    async def save_article(self, article_data: Dict[str, Any], notion_url: str) -> str:
-        """
-        Save article data to local filesystem.
+    async def connect(self):
+        """Connect to MongoDB."""
+        if self._connected:
+            return
         
-        Args:
-            article_data: Article dictionary
-            notion_url: URL of Notion page
-            
-        Returns:
-            Path to saved file
-        """
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        topic_slug = self._slugify(article_data["topic_title"])
-        
-        # Save JSON
-        json_filename = f"{date_str}-{topic_slug}.json"
-        json_path = self.storage_dir / json_filename
-        
-        # Add metadata
-        save_data = {
-            **article_data,
-            "notion_url": notion_url,
-            "saved_at": datetime.now().isoformat()
-        }
-        
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(save_data, f, indent=2, ensure_ascii=False)
-        
-        # Save HTML
-        if "article_html" in article_data:
-            html_filename = f"{date_str}-{topic_slug}.html"
-            html_path = self.storage_dir / html_filename
-            
-            with open(html_path, 'w', encoding='utf-8') as f:
-                f.write(article_data["article_html"])
-        
-        logger.info(f"Saved article locally: {json_path}")
-        return str(json_path)
-    
-    def _slugify(self, text: str) -> str:
-        """Convert text to URL-safe slug."""
-        import re
-        text = text.lower()
-        text = re.sub(r'[^\w\s-]', '', text)
-        text = re.sub(r'[\s_-]+', '-', text)
-        text = re.sub(r'^-+|-+$', '', text)
-        return text[:100]
-
-
-# S3 Storage (optional, requires boto3)
-class S3StorageService:
-    """Service for saving articles to AWS S3."""
-    
-    def __init__(self, bucket_name: str, access_key: str, secret_key: str):
-        try:
-            import boto3
-            self.s3_client = boto3.client(
-                's3',
-                aws_access_key_id=access_key,
-                aws_secret_access_key=secret_key
-            )
-            self.bucket_name = bucket_name
-            self.enabled = True
-        except ImportError:
-            logger.warning("boto3 not installed. S3 storage disabled.")
-            self.enabled = False
-    
-    async def save_article(self, article_data: Dict[str, Any], notion_url: str) -> Optional[str]:
-        """
-        Save article to S3.
-        
-        Args:
-            article_data: Article dictionary
-            notion_url: URL of Notion page
-            
-        Returns:
-            S3 URL of saved file or None if disabled
-        """
-        if not self.enabled:
-            return None
-        
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        topic_slug = self._slugify(article_data["topic_title"])
-        
-        # Save JSON
-        json_key = f"daily_articles/{date_str}/{topic_slug}.json"
-        save_data = {
-            **article_data,
-            "notion_url": notion_url,
-            "saved_at": datetime.now().isoformat()
-        }
+        if not settings.mongodb_uri:
+            logger.warning("MongoDB URI not configured. Storage disabled.")
+            return
         
         try:
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=json_key,
-                Body=json.dumps(save_data, indent=2, ensure_ascii=False),
-                ContentType='application/json'
-            )
+            self.client = AsyncIOMotorClient(settings.mongodb_uri)
+            self.db = self.client.dailicle
+            self.collection = self.db.articles  # Full article storage
             
-            # Save HTML
-            if "article_html" in article_data:
-                html_key = f"daily_articles/{date_str}/{topic_slug}.html"
-                self.s3_client.put_object(
-                    Bucket=self.bucket_name,
-                    Key=html_key,
-                    Body=article_data["article_html"],
-                    ContentType='text/html'
-                )
+            # Test connection
+            await self.client.admin.command('ping')
+            self._connected = True
+            logger.info("Connected to MongoDB articles collection")
             
-            s3_url = f"https://{self.bucket_name}.s3.amazonaws.com/{json_key}"
-            logger.info(f"Saved article to S3: {s3_url}")
-            return s3_url
+            # Create indexes
+            await self.collection.create_index("date")
+            await self.collection.create_index("topic_history_id")
+            await self.collection.create_index("topic_title")
             
         except Exception as e:
-            logger.error(f"Failed to save to S3: {e}")
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            self._connected = False
+    
+    async def save_article(
+        self, 
+        article_data: Dict[str, Any], 
+        notion_url: str,
+        topic_history_id: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Save full article data to MongoDB.
+        
+        Args:
+            article_data: Full article dictionary from LLM
+            notion_url: URL of created Notion page
+            topic_history_id: ID from topic_history collection (for linking)
+            
+        Returns:
+            Inserted document ID or None if storage disabled
+        """
+        await self.connect()
+        
+        if not self._connected:
+            logger.warning("MongoDB not connected. Skipping article storage.")
+            return None
+        
+        try:
+            doc = {
+                "topic_title": article_data.get("topic_title"),
+                "topic_rationale": article_data.get("topic_rationale"),
+                "category": article_data.get("category"),
+                "tags": article_data.get("tags", []),
+                "article_markdown": article_data.get("article_markdown"),
+                "raw_response": article_data.get("raw_response"),
+                "email_subject": article_data.get("email_subject"),
+                "estimated_wordcount": article_data.get("estimated_wordcount", 0),
+                "reading_time_minutes": article_data.get("reading_time_minutes", 0),
+                "youtube": article_data.get("youtube", []),
+                "papers": article_data.get("papers", []),
+                "notion_url": notion_url,
+                "date": datetime.utcnow(),
+                "date_str": datetime.utcnow().strftime("%Y-%m-%d"),
+            }
+            
+            # Link to topic_history if provided
+            if topic_history_id:
+                doc["topic_history_id"] = topic_history_id
+            
+            result = await self.collection.insert_one(doc)
+            article_id = str(result.inserted_id)
+            
+            logger.info(f"Saved article to MongoDB: {article_data.get('topic_title')} (id: {article_id})")
+            return article_id
+            
+        except Exception as e:
+            logger.error(f"Failed to save article to MongoDB: {e}")
             return None
     
-    def _slugify(self, text: str) -> str:
-        """Convert text to URL-safe slug."""
-        import re
-        text = text.lower()
-        text = re.sub(r'[^\w\s-]', '', text)
-        text = re.sub(r'[\s_-]+', '-', text)
-        text = re.sub(r'^-+|-+$', '', text)
-        return text[:100]
-
-
-# Factory function to create appropriate storage service
-def get_storage_service():
-    """Get the configured storage service."""
-    from config import settings
+    async def get_article(self, article_id: str) -> Optional[Dict[str, Any]]:
+        """Get article by ID."""
+        await self.connect()
+        
+        if not self._connected:
+            return None
+        
+        try:
+            doc = await self.collection.find_one({"_id": ObjectId(article_id)})
+            if doc:
+                doc["_id"] = str(doc["_id"])
+            return doc
+        except Exception as e:
+            logger.error(f"Failed to get article: {e}")
+            return None
     
-    if settings.s3_bucket_name and settings.aws_access_key_id:
-        return S3StorageService(
-            settings.s3_bucket_name,
-            settings.aws_access_key_id,
-            settings.aws_secret_access_key
-        )
-    else:
-        return LocalStorageService()
+    async def get_article_by_date(self, date_str: str) -> Optional[Dict[str, Any]]:
+        """Get article by date string (YYYY-MM-DD)."""
+        await self.connect()
+        
+        if not self._connected:
+            return None
+        
+        try:
+            doc = await self.collection.find_one({"date_str": date_str})
+            if doc:
+                doc["_id"] = str(doc["_id"])
+            return doc
+        except Exception as e:
+            logger.error(f"Failed to get article by date: {e}")
+            return None
+    
+    async def get_recent_articles(self, limit: int = 10) -> list:
+        """Get most recent articles."""
+        await self.connect()
+        
+        if not self._connected:
+            return []
+        
+        try:
+            cursor = self.collection.find({}).sort("date", -1).limit(limit)
+            docs = await cursor.to_list(length=limit)
+            for doc in docs:
+                doc["_id"] = str(doc["_id"])
+            return docs
+        except Exception as e:
+            logger.error(f"Failed to get recent articles: {e}")
+            return []
+    
+    async def close(self):
+        """Close MongoDB connection."""
+        if self.client:
+            self.client.close()
+            self._connected = False
 
 
 # Global instance
-storage_service = get_storage_service()
+storage_service = MongoStorageService()

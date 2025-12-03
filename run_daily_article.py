@@ -30,17 +30,15 @@ async def main():
         log("Starting article generation workflow...")
         log("This will take 3-5 minutes for OpenAI to generate the article...")
         
-        result = await orchestrator.generate_and_publish(
-            topic_seed=None,
-            send_email=True,
-            save_to_storage=True
-        )
+        result = await orchestrator.generate_and_publish(send_email=True)
         
         log("=" * 70)
         log("SUCCESS! Article generation completed!")
         log(f"Topic: {result.get('topic_title')}")
+        log(f"Category: {result.get('category')}")
         log(f"Notion: {result.get('notion_url')}")
         log(f"Email sent: {result.get('email_sent')}")
+        log(f"Article ID: {result.get('article_id')}")
         log(f"Duration: {result.get('duration_seconds', 0):.2f}s")
         log("=" * 70)
         
