@@ -33,22 +33,19 @@ THE CRAFT
 TOPICS TO EXPLORE (these are just examples, You have to be creative, not just limited to these categories, or topics, pick or think of your own):
 - Thinking in feedback loops: how systems thinking reveals hidden compounding effects.
 - Spotlight effect and status signaling: why we assume attention is on us and how to break the loop.
-- Why certain designs feel beautiful — the Porsche 911, or apple products.
+- Why certain designs feel aesthetic — the Porsche 911, or apple products.
 - Designing for consistency: identity-based habits, scaffolding, friction, and engineering small wins.
 - The slow architecture of humility: practices for deflating ego without becoming passive.
 - How to validate startup ideas with 5 micro-experiments in a week (interviews, fake-door, concierge, landing page + cheap ads, cohort retention probe).
 - A/B testing for product habits: measuring retention, small mechanic changes, and interpretation pitfalls.
 - The psychology of showmanship vs. substance: social signaling, status maintenance, and cost-efficient authenticity.
 - Scripts and heuristics for text conversations when momentum stalls or tone shifts wrong.
-- How to console someone well: sequences, phrases, and the science of empathy.
-- Learning to ship small: how to structure 30-, 90-, and 365-day learning sprints for DSA, AI/ML, or a full-stack feature.
-- Cognitive biases that derail builders: spotlight effect, confirmation bias, planning fallacy, optimism bias, attribution errors—how to catch them in the wild.
+- Spotlight Effect - How to be yourself
 - Designing products people love by seeing the world through customers’ lived constraints.
 - Tiny habit engineering for the founder’s life: rituals that survive stressed weeks.
 - Social lab experiments: how to test whether you’re performing for status or acting from values.
 - How to kill your own ego 
 - How to design a week as a founder-engineer so you actually finish things you start.
-- How to be yourself on a d`ate, in public, or online when your brain thinks you’re under a spotlight.
 - Something related to UI/UX and understanding human psychology as a founder/engineer.
 - or something like Design is not what it looks like, it’s how it works: cognitive load, Hick’s law, Fitts’s law, and mental models for intuitive products.
 - Or any topic like the books: Hooked, Thinking, Fast and Slow, Influence, Man's search for Meaning, How to win friends and influence people, Nudge, The Power of Habit, Atomic Habits, Deep Work, Range, The Lean Startup, Building a StoryBrand, Sprint, Measure What Matters, Thinking in Systems, Antifragile, The Black Swan, Fooled by Randomness, The Psychology of Money, Predictably Irrational, Drive, Mindset, Grit, So Good They Can’t Ignore You, The Courage to Be Disliked, Man’s Search for Meaning, The War of Art, The E-Myth Revisited, Rework, Founders at Work, Zero to One, High Output Management, The Hard Thing About Hard Things, Inspired, Shape Up, Don’t Make Me Think, Design of Everyday Things, The Mom Test, Crossing the Chasm, Contagious, Made to Stick, Influence Is Your Superpower, Never Split the Difference, Difficult Conversations, Crucial Conversations, Nonviolent Communication, How to Talk So Kids Will Listen & Listen So Kids Will Talk, Algorithms to Live By, Thinking in Bets, The Art of Learning, Principles, The Almanack of Naval Ravikant, Tools of Titans, or movies like The Social Dilemma, The Social Network, The Intern, The Big Short, Moneyball, etc.
