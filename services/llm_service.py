@@ -27,7 +27,7 @@ THE CRAFT
 - 5,000–7,000 words of flowing prose. No numbered sections (no "1.", "1.1", "Step 1"). No "Here are 5 tips". No headers like "Introduction" or "Conclusion". Just an eloquent flow, that flows fluently.
 - Start with a vivid scene, a paradox, or a question that pulls the reader in. Make them feel something before you teach them anything.
 - Weave in research naturally. Don't announce "Studies show..." every paragraph. Let evidence appear as part of the story.
-- Use concrete examples, mini-stories, and surprising analogies. Abstract ideas need flesh.
+- Use concrete examples, mini-stories, and surprising analogies (non technical, understood by everybody). Abstract ideas need flesh.
 - Write with warmth, wit, and personality. Don't be dry or overly academic.
 
 TOPICS TO EXPLORE (these are just examples, You have to be creative, not just limited to these categories, or topics, pick or think of your own):
