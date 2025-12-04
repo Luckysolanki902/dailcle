@@ -67,11 +67,11 @@ Summary: [One sentence core insight]
 
 YOUTUBE:
 - "Video Title" by Channel: https://youtube.com/watch?v=xxxxx - Why worth watching
-(3-5 videos with real URLs)
+(3-5 videos with real URLs, make sure they exist, work and are so relevant)
 
 RESOURCES:
 - "Title" by Author (Year): https://... - One line why
-(5-10 items with real URLs)
+(5-10 items with real URLs, make sure they exist, work and are so relevant)
 
 Write the best essay you've ever written. Make readers think, feel, and see something new."""
 
