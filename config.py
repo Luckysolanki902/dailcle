@@ -37,10 +37,12 @@ class Settings(BaseSettings):
     # MongoDB Configuration
     mongodb_uri: Optional[str] = None
     
-    # Optional: Cloud Storage
+    # Optional: Cloud Storage (AWS S3 + CloudFront)
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
-    s3_bucket_name: Optional[str] = None
+    aws_region: str = "ap-south-1"
+    aws_bucket: Optional[str] = None
+    cloudfront_base_url: Optional[str] = None
     
     model_config = SettingsConfigDict(
         env_file=".env",

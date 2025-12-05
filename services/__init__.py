@@ -1,3 +1,6 @@
 """
-Empty __init__.py to make services directory a Python package.
+Services package for Dailicle server.
 """
+from .audio_service import AudioService, audio_service
+
+__all__ = ["AudioService", "audio_service"]

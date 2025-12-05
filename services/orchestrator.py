@@ -13,6 +13,16 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Lazy import for audio service (optional dependency)
+def get_audio_service():
+    """Lazily import audio service to avoid import errors if AWS not configured."""
+    try:
+        from services.audio_service import audio_service
+        return audio_service
+    except Exception as e:
+        logger.warning(f"Audio service not available: {e}")
+        return None
+
 
 class ArticleOrchestrator:
     """Coordinates the entire article generation and distribution workflow."""
@@ -56,7 +66,7 @@ class ArticleOrchestrator:
                     logger.warning(f"Could not fetch topic history: {e}. Continuing without exclusions.")
             
             # Step 1: Generate article using LLM
-            logger.info("Step 1/5: Generating article with OpenAI...")
+            logger.info("Step 1/6: Generating article with OpenAI...")
             article_data = await llm_service.generate_article_with_retry(exclusion_prompt)
             
             result["topic_title"] = article_data["topic_title"]
@@ -73,14 +83,14 @@ class ArticleOrchestrator:
             llm_service.validate_article_structure(article_data)
             
             # Step 2: Create Notion page
-            logger.info("Step 2/5: Creating Notion page...")
+            logger.info("Step 2/6: Creating Notion page...")
             notion_url = await notion_service.create_article_page(article_data)
             result["notion_url"] = notion_url
             logger.info(f"✓ Notion page created: {notion_url}")
             
             # Step 3: Send email (optional)
             if send_email:
-                logger.info("Step 3/5: Sending email notification...")
+                logger.info("Step 3/6: Sending email notification...")
                 email_sent = await email_service.send_article_email(article_data, notion_url)
                 result["email_sent"] = email_sent
                 
@@ -91,13 +101,13 @@ class ArticleOrchestrator:
                     result["errors"].append("Email sending failed")
             else:
                 result["email_sent"] = False
-                logger.info("Step 3/5: Email sending skipped")
+                logger.info("Step 3/6: Email sending skipped")
             
             # Step 4: Save topic to MongoDB history for diversity
             topic_history_id = None
             if settings.mongodb_uri:
                 try:
-                    logger.info("Step 4/5: Saving to topic history (MongoDB)...")
+                    logger.info("Step 4/6: Saving to topic history (MongoDB)...")
                     tags = article_data.get("tags", [])
                     category = article_data.get("category") or (tags[0] if tags else "psychology")
                     
@@ -113,9 +123,10 @@ class ArticleOrchestrator:
                     logger.warning(f"Could not save to topic history: {e}")
             
             # Step 5: Save full article to MongoDB (linked to topic_history)
+            article_id = None
             if settings.mongodb_uri:
                 try:
-                    logger.info("Step 5/5: Saving full article to MongoDB...")
+                    logger.info("Step 5/6: Saving full article to MongoDB...")
                     article_id = await storage_service.save_article(
                         article_data, 
                         notion_url,
@@ -125,6 +136,34 @@ class ArticleOrchestrator:
                     logger.info(f"✓ Article saved to MongoDB (id: {article_id})")
                 except Exception as e:
                     logger.warning(f"Could not save article to MongoDB: {e}")
+            
+            # Step 6: Generate audio narration (graceful - doesn't fail the workflow)
+            if article_id and settings.aws_access_key_id and settings.aws_bucket:
+                try:
+                    logger.info("Step 6/6: Generating audio narration...")
+                    audio_svc = get_audio_service()
+                    if audio_svc:
+                        audio_result = await audio_svc.generate_audio_for_new_article(
+                            article_id=article_id,
+                            article_markdown=article_data.get("article_markdown", ""),
+                            voice="fable"
+                        )
+                        result["audio_url"] = audio_result.get("audio_url")
+                        result["audio_duration"] = audio_result.get("audio_duration_seconds")
+                        logger.info(f"✓ Audio generated: {audio_result.get('audio_url')}")
+                    else:
+                        logger.warning("✗ Audio service not available")
+                        result["errors"].append("Audio service not available")
+                except Exception as e:
+                    # Audio generation failure should NOT fail the entire workflow
+                    logger.warning(f"✗ Audio generation failed (non-critical): {e}")
+                    result["errors"].append(f"Audio generation failed: {str(e)}")
+                    result["audio_url"] = None
+            else:
+                if not article_id:
+                    logger.info("Step 6/6: Skipping audio (no article_id)")
+                else:
+                    logger.info("Step 6/6: Skipping audio (AWS not configured)")
             
             # Calculate duration
             end_time = datetime.now()
