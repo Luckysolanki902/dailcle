@@ -3,7 +3,6 @@ Orchestrator service that coordinates all services to generate and distribute ar
 """
 from typing import Dict, Any, Optional
 from services.llm_service import llm_service
-from services.notion_service import notion_service
 from services.email_service import email_service
 from services.storage_service import storage_service
 from services.topic_history_service import topic_history
@@ -32,13 +31,13 @@ class ArticleOrchestrator:
         send_email: bool = True
     ) -> Dict[str, Any]:
         """
-        Full workflow: generate article, create Notion page, send email, save to MongoDB.
+        Full workflow: generate article, save to MongoDB, send email, generate audio.
         
         Args:
             send_email: Whether to send email notification
             
         Returns:
-            Dictionary with workflow results and URLs
+            Dictionary with workflow results
         """
         start_time = datetime.now()
         logger.info("=" * 60)
@@ -66,7 +65,7 @@ class ArticleOrchestrator:
                     logger.warning(f"Could not fetch topic history: {e}. Continuing without exclusions.")
             
             # Step 1: Generate article using LLM
-            logger.info("Step 1/6: Generating article with OpenAI...")
+            logger.info("Step 1/4: Generating article with OpenAI...")
             article_data = await llm_service.generate_article_with_retry(exclusion_prompt)
             
             result["topic_title"] = article_data["topic_title"]
@@ -82,32 +81,13 @@ class ArticleOrchestrator:
             # Validate article structure
             llm_service.validate_article_structure(article_data)
             
-            # Step 2: Create Notion page
-            logger.info("Step 2/6: Creating Notion page...")
-            notion_url = await notion_service.create_article_page(article_data)
-            result["notion_url"] = notion_url
-            logger.info(f"✓ Notion page created: {notion_url}")
-            
-            # Step 3: Send email (optional)
-            if send_email:
-                logger.info("Step 3/6: Sending email notification...")
-                email_sent = await email_service.send_article_email(article_data, notion_url)
-                result["email_sent"] = email_sent
-                
-                if email_sent:
-                    logger.info("✓ Email sent successfully")
-                else:
-                    logger.warning("✗ Email sending failed")
-                    result["errors"].append("Email sending failed")
-            else:
-                result["email_sent"] = False
-                logger.info("Step 3/6: Email sending skipped")
-            
-            # Step 4: Save topic to MongoDB history for diversity
-            topic_history_id = None
+            # Step 2: Save to MongoDB (article + topic history)
+            article_id = None
             if settings.mongodb_uri:
                 try:
-                    logger.info("Step 4/6: Saving to topic history (MongoDB)...")
+                    logger.info("Step 2/4: Saving article to MongoDB...")
+                    
+                    # Save to topic history first
                     tags = article_data.get("tags", [])
                     category = article_data.get("category") or (tags[0] if tags else "psychology")
                     
@@ -116,31 +96,49 @@ class ArticleOrchestrator:
                         tags=tags,
                         category=category,
                         word_count=article_data.get("estimated_wordcount", 0),
-                        notion_url=notion_url
+                        notion_url=""  # No longer using Notion
                     )
-                    logger.info(f"✓ Topic saved to history (id: {topic_history_id})")
-                except Exception as e:
-                    logger.warning(f"Could not save to topic history: {e}")
-            
-            # Step 5: Save full article to MongoDB (linked to topic_history)
-            article_id = None
-            if settings.mongodb_uri:
-                try:
-                    logger.info("Step 5/6: Saving full article to MongoDB...")
+                    logger.info(f"  ✓ Topic saved to history (id: {topic_history_id})")
+                    
+                    # Save full article
                     article_id = await storage_service.save_article(
                         article_data, 
-                        notion_url,
+                        notion_url="",  # No longer using Notion
                         topic_history_id=topic_history_id
                     )
                     result["article_id"] = article_id
                     logger.info(f"✓ Article saved to MongoDB (id: {article_id})")
                 except Exception as e:
-                    logger.warning(f"Could not save article to MongoDB: {e}")
+                    logger.error(f"✗ Could not save article to MongoDB: {e}")
+                    result["errors"].append(f"MongoDB save failed: {str(e)}")
+                    raise  # This is critical - article must be saved
             
-            # Step 6: Generate audio narration (graceful - doesn't fail the workflow)
+            # Step 3: Send email notification (optional, non-critical)
+            if send_email:
+                try:
+                    logger.info("Step 3/4: Sending email notification...")
+                    # Build article URL for email
+                    article_url = f"https://dailicle.com/read/{article_id}" if article_id else ""
+                    email_sent = await email_service.send_article_email(article_data, article_url)
+                    result["email_sent"] = email_sent
+                    
+                    if email_sent:
+                        logger.info("✓ Email sent successfully")
+                    else:
+                        logger.warning("✗ Email sending failed")
+                        result["errors"].append("Email sending failed")
+                except Exception as e:
+                    logger.warning(f"✗ Email sending failed (non-critical): {e}")
+                    result["email_sent"] = False
+                    result["errors"].append(f"Email failed: {str(e)}")
+            else:
+                result["email_sent"] = False
+                logger.info("Step 3/4: Email sending skipped")
+            
+            # Step 4: Generate audio narration (optional, non-critical)
             if article_id and settings.aws_access_key_id and settings.aws_bucket:
                 try:
-                    logger.info("Step 6/6: Generating audio narration...")
+                    logger.info("Step 4/4: Generating audio narration...")
                     audio_svc = get_audio_service()
                     if audio_svc:
                         audio_result = await audio_svc.generate_audio_for_new_article(
@@ -161,9 +159,9 @@ class ArticleOrchestrator:
                     result["audio_url"] = None
             else:
                 if not article_id:
-                    logger.info("Step 6/6: Skipping audio (no article_id)")
+                    logger.info("Step 4/4: Skipping audio (no article_id)")
                 else:
-                    logger.info("Step 6/6: Skipping audio (AWS not configured)")
+                    logger.info("Step 4/4: Skipping audio (AWS not configured)")
             
             # Calculate duration
             end_time = datetime.now()
@@ -176,8 +174,9 @@ class ArticleOrchestrator:
             logger.info("=" * 60)
             logger.info(f"✓ Workflow completed successfully in {duration:.2f}s")
             logger.info(f"Topic: {article_data['topic_title']}")
-            logger.info(f"Notion: {notion_url}")
+            logger.info(f"Article ID: {article_id}")
             logger.info(f"Email sent: {result.get('email_sent', False)}")
+            logger.info(f"Audio: {result.get('audio_url', 'Not generated')}")
             logger.info("=" * 60)
             
             return result
